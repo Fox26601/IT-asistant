@@ -1,0 +1,32 @@
+# Blueprint for a second Web Service next to your site in the same Render workspace.
+# Dashboard: New → Blueprint → this repo, or New → Web Service with Root Directory = sales-agent
+services:
+  - type: web
+    name: sales-agent
+    runtime: docker
+    rootDir: sales-agent
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    plan: free
+    envVars:
+      - key: ALLOW_MOCK_INTEGRATIONS
+        value: "true"
+      - key: PORT
+        value: "3847"
+      - key: TZ
+        value: Europe/Kyiv
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: OWNER_TELEGRAM_CHAT_ID
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
