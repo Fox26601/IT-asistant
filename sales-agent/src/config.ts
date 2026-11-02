@@ -38,12 +38,11 @@ export const config = {
   telegramToken: required("TELEGRAM_BOT_TOKEN"),
   ownerChatId: required("OWNER_TELEGRAM_CHAT_ID"),
   botUsername: required("TELEGRAM_BOT_USERNAME"),
-  telegramWebhookSecret: required("TELEGRAM_WEBHOOK_SECRET") || required("WEBHOOK_SECRET", "change-me"),
-  openaiApiKey: required("OPENAI_API_KEY"),
-  openaiBaseUrl: required("OPENAI_BASE_URL") || undefined,
-  openaiModel: required("OPENAI_MODEL", "gpt-4o-mini"),
-  openaiVisionModel: required("OPENAI_VISION_MODEL", "gpt-4o-mini"),
-  openaiTranscribeModel: required("OPENAI_TRANSCRIBE_MODEL", "whisper-1"),
+  telegramWebhookSecret:
+    required("TELEGRAM_WEBHOOK_SECRET") ||
+    required("WEBHOOK_SECRET", "change-me"),
+  geminiApiKey: required("GEMINI_API_KEY"),
+  geminiModel: required("GEMINI_MODEL", "gemini-2.0-flash"),
   port: Number(required("PORT", "3847")),
   webhookSecret: required("WEBHOOK_SECRET", "change-me"),
   publicBaseUrl: required("PUBLIC_BASE_URL", "http://localhost:3847").replace(
@@ -82,7 +81,7 @@ export function telegramWebhookUrl(): string {
 export function assertRuntimeConfig() {
   const missing: string[] = [];
   if (!config.telegramToken) missing.push("TELEGRAM_BOT_TOKEN");
-  if (!config.openaiApiKey) missing.push("OPENAI_API_KEY");
+  if (!config.geminiApiKey) missing.push("GEMINI_API_KEY");
   if (missing.length) {
     throw new Error(
       `Missing required env: ${missing.join(", ")}. Copy sales-agent/.env.example → .env`

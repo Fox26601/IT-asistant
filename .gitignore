@@ -4,3 +4,4 @@ node_modules/
 *.log
 sales-agent/data/
 *.sqlite
+it-asistant/

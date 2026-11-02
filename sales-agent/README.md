@@ -19,9 +19,10 @@ npm install
 3. Message bot `/start`, then `https://api.telegram.org/bot<TOKEN>/getUpdates` → your `chat.id` → `OWNER_TELEGRAM_CHAT_ID`
 4. Set `TELEGRAM_WEBHOOK_SECRET` to a long random string (used on Render)
 
-### 2) OpenAI
+### 2) Gemini
 
-`OPENAI_API_KEY` (optional `OPENAI_BASE_URL`).
+`GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey).  
+Optional: `GEMINI_MODEL` (default `gemini-2.0-flash`).
 
 ### 3) Google Calendar (optional)
 
@@ -55,7 +56,8 @@ Repo: `daniil-bxvm8/IT-asistant`. Site stays as-is; agent is a **second Web Serv
 | `OWNER_TELEGRAM_CHAT_ID` | your chat id |
 | `TELEGRAM_BOT_USERNAME` | bot name without `@` |
 | `TELEGRAM_WEBHOOK_SECRET` | long random string |
-| `OPENAI_API_KEY` | sk-… |
+| `GEMINI_API_KEY` | from AI Studio |
+| `GEMINI_MODEL` | `gemini-2.0-flash` (optional) |
 | `WEBHOOK_SECRET` | shared with the site |
 | `PUBLIC_BASE_URL` | `https://sales-agent-xxxx.onrender.com` (no trailing slash) |
 | `ALLOW_MOCK_INTEGRATIONS` | `true` until Google Calendar is wired |

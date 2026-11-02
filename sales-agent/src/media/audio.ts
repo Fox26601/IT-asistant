@@ -1,42 +1,24 @@
-import OpenAI from "openai";
-import { writeFileSync, unlinkSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { config } from "../config.js";
+import { getGemini, mimeFromFilename } from "../llm/gemini.js";
 
-let client: OpenAI | null = null;
-
-function getClient() {
-  if (!client) {
-    client = new OpenAI({
-      apiKey: config.openaiApiKey,
-      baseURL: config.openaiBaseUrl,
-    });
-  }
-  return client;
-}
-
-/** Transcribe voice/audio bytes with Whisper. */
+/** Transcribe voice/audio bytes with Gemini multimodal. */
 export async function transcribeAudio(
   buffer: Buffer,
   filename = "voice.ogg"
 ): Promise<string> {
-  const openai = getClient();
-  const dir = mkdtempSync(join(tmpdir(), "sales-agent-audio-"));
-  const path = join(dir, filename);
-  writeFileSync(path, buffer);
-  try {
-    const file = await OpenAI.toFile(buffer, filename);
-    const res = await openai.audio.transcriptions.create({
-      file,
-      model: config.openaiTranscribeModel,
-    });
-    return (res.text || "").trim() || "(empty transcript)";
-  } finally {
-    try {
-      unlinkSync(path);
-    } catch {
-      /* ignore */
-    }
-  }
+  const mime = mimeFromFilename(filename);
+  const model = getGemini().getGenerativeModel({ model: config.geminiModel });
+  const result = await model.generateContent([
+    {
+      text: "Transcribe this voice message verbatim. Return only the transcript text, no commentary. If unclear, return the best-effort transcript.",
+    },
+    {
+      inlineData: {
+        mimeType: mime.startsWith("audio/") ? mime : "audio/ogg",
+        data: buffer.toString("base64"),
+      },
+    },
+  ]);
+
+  return result.response.text()?.trim() || "(empty transcript)";
 }

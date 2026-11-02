@@ -1,5 +1,11 @@
-import OpenAI from "openai";
+import {
+  SchemaType,
+  type Content,
+  type FunctionDeclaration,
+  type Part,
+} from "@google/generative-ai";
 import { config } from "../config.js";
+import { getGemini } from "../llm/gemini.js";
 import {
   saveSession,
   type DealSlots,
@@ -9,70 +15,48 @@ import { SYSTEM_PROMPT, SLOT_CHECKLIST } from "./prompts.js";
 import { createDealEvent } from "../integrations/googleCalendar.js";
 import { notifyOwnerDeal } from "../integrations/ownerNotify.js";
 
-let client: OpenAI | null = null;
-
-function getClient() {
-  if (!client) {
-    client = new OpenAI({
-      apiKey: config.openaiApiKey,
-      baseURL: config.openaiBaseUrl,
-    });
-  }
-  return client;
-}
-
-const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+const functionDeclarations: FunctionDeclaration[] = [
   {
-    type: "function",
-    function: {
-      name: "update_slots",
-      description: "Merge newly learned booking fields into the deal profile",
-      parameters: {
-        type: "object",
-        properties: {
-          need: { type: "string" },
-          format: { type: "string" },
-          budgetOrPackage: { type: "string" },
-          preferredDateTime: { type: "string" },
-          contact: { type: "string" },
-          consentToBook: { type: "boolean" },
-          notes: { type: "string" },
-          clientName: { type: "string" },
-        },
-        additionalProperties: false,
+    name: "update_slots",
+    description: "Merge newly learned booking fields into the deal profile",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        need: { type: SchemaType.STRING },
+        format: { type: SchemaType.STRING },
+        budgetOrPackage: { type: SchemaType.STRING },
+        preferredDateTime: { type: SchemaType.STRING },
+        contact: { type: SchemaType.STRING },
+        consentToBook: { type: SchemaType.BOOLEAN },
+        notes: { type: SchemaType.STRING },
+        clientName: { type: SchemaType.STRING },
       },
     },
   },
   {
-    type: "function",
-    function: {
-      name: "create_deal",
-      description:
-        "Register the booking: create Google Calendar event and notify the host. Call only when required slots are filled and consentToBook is true.",
-      parameters: {
-        type: "object",
-        properties: {
-          confirm: {
-            type: "boolean",
-            description: "Must be true to proceed",
-          },
+    name: "create_deal",
+    description:
+      "Register the booking: create Google Calendar event and notify the host. Call only when required slots are filled and consentToBook is true.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        confirm: {
+          type: SchemaType.BOOLEAN,
+          description: "Must be true to proceed",
         },
-        required: ["confirm"],
       },
+      required: ["confirm"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "handoff_human",
-      description: "Flag that a human should take over",
-      parameters: {
-        type: "object",
-        properties: {
-          reason: { type: "string" },
-        },
-        required: ["reason"],
+    name: "handoff_human",
+    description: "Flag that a human should take over",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        reason: { type: SchemaType.STRING },
       },
+      required: ["reason"],
     },
   },
 ];
@@ -97,6 +81,22 @@ function mergeSlots(base: DealSlots, patch: Partial<DealSlots>): DealSlots {
     (next as Record<string, unknown>)[k] = v;
   }
   return next;
+}
+
+function toGeminiHistory(session: Session): Content[] {
+  const history: Content[] = [];
+  for (const m of session.messages.slice(0, -1)) {
+    if (m.role === "system") continue;
+    history.push({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    });
+  }
+  // Gemini requires history to start with user if non-empty
+  while (history.length && history[0].role !== "user") {
+    history.shift();
+  }
+  return history;
 }
 
 export type TurnResult = {
@@ -128,76 +128,51 @@ export async function handleUserTurn(
     return { reply, session, booked: true };
   }
 
-  const openai = getClient();
   const slotState = `Current slots JSON: ${JSON.stringify(session.slots)}\nMissing: ${
     missingSlots(session.slots).join(", ") || "none"
   }`;
 
-  const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: SYSTEM_PROMPT },
-    { role: "system", content: slotState },
-    ...session.messages.map((m) => ({
-      role: m.role as "user" | "assistant" | "system",
-      content: m.content,
-    })),
-  ];
+  const model = getGemini().getGenerativeModel({
+    model: config.geminiModel,
+    systemInstruction: `${SYSTEM_PROMPT}\n\n${slotState}`,
+    tools: [{ functionDeclarations }],
+  });
+
+  const chat = model.startChat({
+    history: toGeminiHistory(session),
+  });
 
   let booked = false;
   let handoff: string | undefined;
   let finalReply = "";
+  let pendingParts: string | Part[] = userText;
 
   for (let round = 0; round < 4; round++) {
-    const completion = await openai.chat.completions.create({
-      model: config.openaiModel,
-      messages,
-      tools,
-      tool_choice: "auto",
-      temperature: 0.4,
-    });
+    const result = await chat.sendMessage(pendingParts);
+    const response = result.response;
+    const calls = response.functionCalls?.() || [];
 
-    const choice = completion.choices[0];
-    const msg = choice?.message;
-    if (!msg) break;
-
-    if (msg.tool_calls?.length) {
-      messages.push({
-        role: "assistant",
-        content: msg.content || null,
-        tool_calls: msg.tool_calls,
-      });
-
-      for (const call of msg.tool_calls) {
-        const name = call.function.name;
-        let args: Record<string, unknown> = {};
-        try {
-          args = JSON.parse(call.function.arguments || "{}");
-        } catch {
-          args = {};
-        }
-
-        let toolResult = "";
+    if (calls.length) {
+      const fnResponses: Part[] = [];
+      for (const call of calls) {
+        const name = call.name;
+        const args = (call.args || {}) as Record<string, unknown>;
+        let toolResult: Record<string, unknown> = {};
 
         if (name === "update_slots") {
           session.slots = mergeSlots(session.slots, args as Partial<DealSlots>);
           saveSession(session);
-          toolResult = JSON.stringify({
+          toolResult = {
             ok: true,
             slots: session.slots,
             missing: missingSlots(session.slots),
-          });
+          };
         } else if (name === "create_deal") {
           const missing = missingSlots(session.slots);
           if (args.confirm !== true) {
-            toolResult = JSON.stringify({
-              ok: false,
-              error: "confirm must be true",
-            });
+            toolResult = { ok: false, error: "confirm must be true" };
           } else if (missing.length) {
-            toolResult = JSON.stringify({
-              ok: false,
-              error: "missing slots",
-              missing,
-            });
+            toolResult = { ok: false, error: "missing slots", missing };
           } else {
             const event = await createDealEvent({
               sessionId: session.id,
@@ -218,12 +193,12 @@ export async function handleUserTurn(
               mockCalendar: event.mock,
             });
             booked = true;
-            toolResult = JSON.stringify({
+            toolResult = {
               ok: true,
               calendarEventId: event.id,
               htmlLink: event.htmlLink,
               mock: Boolean(event.mock),
-            });
+            };
           }
         } else if (name === "handoff_human") {
           handoff = String(args.reason || "client requested human");
@@ -236,21 +211,23 @@ export async function handleUserTurn(
               notes: `${session.slots.notes || ""}\nHANDOFF: ${handoff}`.trim(),
             },
           });
-          toolResult = JSON.stringify({ ok: true, handoff });
+          toolResult = { ok: true, handoff };
         } else {
-          toolResult = JSON.stringify({ ok: false, error: "unknown tool" });
+          toolResult = { ok: false, error: "unknown tool" };
         }
 
-        messages.push({
-          role: "tool",
-          tool_call_id: call.id,
-          content: toolResult,
+        fnResponses.push({
+          functionResponse: {
+            name,
+            response: toolResult,
+          },
         });
       }
+      pendingParts = fnResponses;
       continue;
     }
 
-    finalReply = (msg.content || "").trim();
+    finalReply = (response.text?.() || "").trim();
     break;
   }
 
