@@ -121,19 +121,37 @@ export function createWebApp() {
     if (!secret || secret !== config.webhookSecret) {
       return c.json({ error: "unauthorized" }, 401);
     }
-    const body = (await c.req.json()) as { sessionId?: string; message?: string };
+    let body: { sessionId?: string; message?: string } = {};
+    try {
+      body = (await c.req.json()) as { sessionId?: string; message?: string };
+    } catch {
+      return c.json({ error: "invalid json" }, 400);
+    }
     if (!body.sessionId || !body.message?.trim()) {
       return c.json({ error: "sessionId and message required" }, 400);
     }
     const session = getSessionById(body.sessionId);
     if (!session) return c.json({ error: "session not found" }, 404);
-    const turn = await handleUserTurn(session, body.message.trim());
-    return c.json({
-      ok: true,
-      reply: turn.reply,
-      status: turn.session.status,
-      booked: turn.booked,
-    });
+    try {
+      const turn = await handleUserTurn(session, body.message.trim());
+      return c.json({
+        ok: true,
+        reply: turn.reply,
+        status: turn.session.status,
+        booked: turn.booked,
+      });
+    } catch (err) {
+      console.error("[web message]", err);
+      return c.json(
+        {
+          ok: false,
+          error: "dialogue_failed",
+          detail: err instanceof Error ? err.message : String(err),
+          status: session.status,
+        },
+        200
+      );
+    }
   });
 
   return app;
