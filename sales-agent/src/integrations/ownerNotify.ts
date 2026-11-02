@@ -51,7 +51,11 @@ export async function notifyOwnerDeal(input: {
     return;
   }
 
-  await b.api.sendMessage(config.ownerChatId, text);
+  try {
+    await b.api.sendMessage(config.ownerChatId, text);
+  } catch (err) {
+    console.error("[ownerNotify] sendMessage failed", err);
+  }
 }
 
 export async function notifyOwnerLead(input: {
@@ -81,5 +85,9 @@ export async function notifyOwnerLead(input: {
     console.log(text);
     return;
   }
-  await b.api.sendMessage(config.ownerChatId, text);
+  try {
+    await b.api.sendMessage(config.ownerChatId, text);
+  } catch (err) {
+    console.error("[ownerNotify] lead notify failed", err);
+  }
 }

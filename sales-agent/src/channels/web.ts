@@ -24,7 +24,17 @@ function handoffUrl(sessionId: string): string | undefined {
 export function createWebApp() {
   const app = new Hono();
 
-  app.get("/health", (c) => c.json({ ok: true }));
+  app.get("/health", (c) =>
+    c.json({
+      ok: true,
+      hasGemini: Boolean(config.geminiApiKey),
+      hasTelegram: Boolean(config.telegramToken),
+      hasOwnerChat: Boolean(config.ownerChatId),
+      botUsername: config.botUsername || null,
+      publicBaseUrl: config.publicBaseUrl,
+      mockCalendar: config.allowMock,
+    })
+  );
 
   app.post("/webhooks/site-lead", async (c) => {
     const secret = c.req.header("x-webhook-secret") || c.req.query("secret");
@@ -39,55 +49,70 @@ export function createWebApp() {
       return c.json({ error: "invalid json" }, 400);
     }
 
-    const contact =
-      body.contact || body.email || body.phone || "web-unknown";
-    const externalUserId = `web:${contact}:${Date.now()}`;
-    const session = createSession("web", externalUserId, {
-      clientName: body.name,
-      contact,
-      notes: body.message,
-    });
-
-    const seed = [
-      "New website lead started a booking conversation.",
-      body.name ? `Name: ${body.name}` : "",
-      `Contact: ${contact}`,
-      body.message ? `Initial message: ${body.message}` : "",
-      "Acknowledge the lead, ask the next qualifying question, and invite them to continue in Telegram if a bot username is configured.",
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    let assistantReply = "";
     try {
-      const turn = await handleUserTurn(session, seed);
-      assistantReply = turn.reply;
+      const contact =
+        body.contact || body.email || body.phone || "web-unknown";
+      const externalUserId = `web:${contact}:${Date.now()}`;
+      const session = createSession("web", externalUserId, {
+        clientName: body.name,
+        contact,
+        notes: body.message,
+      });
+
+      const seed = [
+        "New website lead started a booking conversation.",
+        body.name ? `Name: ${body.name}` : "",
+        `Contact: ${contact}`,
+        body.message ? `Initial message: ${body.message}` : "",
+        "Acknowledge the lead, ask the next qualifying question, and invite them to continue in Telegram if a bot username is configured.",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      let assistantReply = "";
+      let dialogueError: string | undefined;
+      try {
+        const turn = await handleUserTurn(session, seed);
+        assistantReply = turn.reply;
+      } catch (err) {
+        console.error("[web lead dialogue]", err);
+        dialogueError = err instanceof Error ? err.message : String(err);
+        assistantReply =
+          "Thanks for reaching out — please continue the booking chat in Telegram.";
+      }
+
+      const url = handoffUrl(session.id);
+      if (url) {
+        session.slots.notes =
+          `${session.slots.notes || ""}\nTelegram handoff: ${url}`.trim();
+        saveSession(session);
+      }
+
+      await notifyOwnerLead({
+        sessionId: session.id,
+        name: body.name,
+        contact,
+        message: body.message,
+        handoffUrl: url,
+      });
+
+      return c.json({
+        ok: true,
+        sessionId: session.id,
+        reply: assistantReply,
+        continueInTelegram: url,
+        dialogueError,
+      });
     } catch (err) {
-      console.error("[web lead dialogue]", err);
-      assistantReply =
-        "Thanks for reaching out — please continue the booking chat in Telegram.";
+      console.error("[web lead]", err);
+      return c.json(
+        {
+          error: "internal",
+          detail: err instanceof Error ? err.message : String(err),
+        },
+        500
+      );
     }
-
-    const url = handoffUrl(session.id);
-    if (url) {
-      session.slots.notes = `${session.slots.notes || ""}\nTelegram handoff: ${url}`.trim();
-      saveSession(session);
-    }
-
-    await notifyOwnerLead({
-      sessionId: session.id,
-      name: body.name,
-      contact,
-      message: body.message,
-      handoffUrl: url,
-    });
-
-    return c.json({
-      ok: true,
-      sessionId: session.id,
-      reply: assistantReply,
-      continueInTelegram: url,
-    });
   });
 
   /** Optional: continue a web session by id (for embedded chat later). */
