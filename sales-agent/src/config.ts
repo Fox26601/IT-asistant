@@ -42,7 +42,7 @@ export const config = {
     required("TELEGRAM_WEBHOOK_SECRET") ||
     required("WEBHOOK_SECRET", "change-me"),
   geminiApiKey: required("GEMINI_API_KEY"),
-  geminiModel: required("GEMINI_MODEL", "gemini-2.0-flash"),
+  geminiModel: required("GEMINI_MODEL", "gemini-3.8-flash"),
   port: Number(required("PORT", "3847")),
   webhookSecret: required("WEBHOOK_SECRET", "change-me"),
   publicBaseUrl: required("PUBLIC_BASE_URL", "http://localhost:3847").replace(

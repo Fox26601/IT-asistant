@@ -22,7 +22,7 @@ npm install
 ### 2) Gemini
 
 `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey).  
-Optional: `GEMINI_MODEL` (default `gemini-2.0-flash`).
+Optional: `GEMINI_MODEL` (default `gemini-3.8-flash`).
 
 ### 3) Google Calendar (optional)
 
@@ -57,7 +57,7 @@ Repo: `daniil-bxvm8/IT-asistant`. Site stays as-is; agent is a **second Web Serv
 | `TELEGRAM_BOT_USERNAME` | bot name without `@` |
 | `TELEGRAM_WEBHOOK_SECRET` | long random string |
 | `GEMINI_API_KEY` | from AI Studio |
-| `GEMINI_MODEL` | `gemini-2.0-flash` (optional) |
+| `GEMINI_MODEL` | `gemini-3.8-flash` (optional) |
 | `WEBHOOK_SECRET` | shared with the site |
 | `PUBLIC_BASE_URL` | `https://sales-agent-xxxx.onrender.com` (no trailing slash) |
 | `ALLOW_MOCK_INTEGRATIONS` | `true` until Google Calendar is wired |
