@@ -147,8 +147,26 @@ export async function handleUserTurn(
   let finalReply = "";
   let pendingParts: string | Part[] = userText;
 
+  async function sendWithRetry(parts: string | Part[]) {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await chat.sendMessage(parts);
+      } catch (err) {
+        lastErr = err;
+        const msg = err instanceof Error ? err.message : String(err);
+        const retryable = /\b(503|429|high demand|unavailable|try again)\b/i.test(
+          msg
+        );
+        if (!retryable || attempt === 2) throw err;
+        await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+      }
+    }
+    throw lastErr;
+  }
+
   for (let round = 0; round < 4; round++) {
-    const result = await chat.sendMessage(pendingParts);
+    const result = await sendWithRetry(pendingParts);
     const response = result.response;
     const calls = response.functionCalls?.() || [];
 
