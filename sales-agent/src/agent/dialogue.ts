@@ -14,6 +14,15 @@ import {
 import { SYSTEM_PROMPT, SLOT_CHECKLIST } from "./prompts.js";
 import { createDealEvent } from "../integrations/googleCalendar.js";
 import { notifyOwnerDeal } from "../integrations/ownerNotify.js";
+import {
+  fetchAvailability,
+  fetchBookingStatus,
+  fetchCatalog,
+  fetchCompatiblePractices,
+  fetchCustomsStatus,
+  fetchPolicy,
+  type SiteApiResult,
+} from "../integrations/siteApi.js";
 
 const functionDeclarations: FunctionDeclaration[] = [
   {
@@ -30,13 +39,24 @@ const functionDeclarations: FunctionDeclaration[] = [
         consentToBook: { type: SchemaType.BOOLEAN },
         notes: { type: SchemaType.STRING },
         clientName: { type: SchemaType.STRING },
+        buyerGender: { type: SchemaType.STRING },
+        buyerGenderCustom: { type: SchemaType.STRING },
+        topic: { type: SchemaType.STRING },
+        source: { type: SchemaType.STRING },
+        page: { type: SchemaType.STRING },
+        orderId: { type: SchemaType.STRING },
+        customsRequestId: { type: SchemaType.STRING },
+        meetingType: { type: SchemaType.STRING },
+        service: { type: SchemaType.STRING },
+        slot: { type: SchemaType.STRING },
+        priceUsd: { type: SchemaType.STRING },
       },
     },
   },
   {
     name: "create_deal",
     description:
-      "Register the booking: create Google Calendar event and notify the host. Call only when required slots are filled and consentToBook is true.",
+      "Register a calendar hold and notify the host. Does NOT process payment — checkout is on the website. Call only when required slots are filled and consentToBook is true.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
@@ -57,6 +77,73 @@ const functionDeclarations: FunctionDeclaration[] = [
         reason: { type: SchemaType.STRING },
       },
       required: ["reason"],
+    },
+  },
+  {
+    name: "fetch_catalog",
+    description:
+      "Load live catalog: prices, packages, creators, boundaries, booking_rules, customs. Call for any price/package/creator question.",
+    parameters: { type: SchemaType.OBJECT, properties: {} },
+  },
+  {
+    name: "fetch_availability",
+    description:
+      "Load availability for an explicit buyer date (YYYY-MM-DD). Only offer slots with available: true.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        date: {
+          type: SchemaType.STRING,
+          description: "Date YYYY-MM-DD from the buyer",
+        },
+      },
+      required: ["date"],
+    },
+  },
+  {
+    name: "fetch_policy",
+    description:
+      "Load operator policy rules. Follow operator_rules; never quote hard_limits to the buyer.",
+    parameters: { type: SchemaType.OBJECT, properties: {} },
+  },
+  {
+    name: "fetch_booking_status",
+    description: "Look up booking status by order_id from the site",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        order_id: { type: SchemaType.STRING },
+      },
+      required: ["order_id"],
+    },
+  },
+  {
+    name: "fetch_customs_status",
+    description: "Look up customs request status by request_id",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        request_id: { type: SchemaType.STRING },
+      },
+      required: ["request_id"],
+    },
+  },
+  {
+    name: "fetch_compatible_practices",
+    description:
+      "Find practices compatible with given creator ids and/or keys",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        creator_ids: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+        },
+        creator_keys: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+        },
+      },
     },
   },
 ];
@@ -92,11 +179,31 @@ function toGeminiHistory(session: Session): Content[] {
       parts: [{ text: m.content }],
     });
   }
-  // Gemini requires history to start with user if non-empty
   while (history.length && history[0].role !== "user") {
     history.shift();
   }
   return history;
+}
+
+function asStringArray(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  return v.map((x) => String(x)).filter(Boolean);
+}
+
+function siteToolPayload(result: SiteApiResult): Record<string, unknown> {
+  if (!result.ok) {
+    return {
+      ok: false,
+      error: result.error || "site_error",
+      status: result.status,
+      data: result.data,
+    };
+  }
+  return {
+    ok: true,
+    status: result.status,
+    data: result.data,
+  };
 }
 
 export type TurnResult = {
@@ -165,7 +272,7 @@ export async function handleUserTurn(
     throw lastErr;
   }
 
-  for (let round = 0; round < 4; round++) {
+  for (let round = 0; round < 6; round++) {
     const result = await sendWithRetry(pendingParts);
     const response = result.response;
     const calls = response.functionCalls?.() || [];
@@ -216,6 +323,8 @@ export async function handleUserTurn(
               calendarEventId: event.id,
               htmlLink: event.htmlLink,
               mock: Boolean(event.mock),
+              checkoutNote:
+                "Payment/checkout only on site paths /book, /customs, /browse",
             };
           }
         } else if (name === "handoff_human") {
@@ -230,6 +339,46 @@ export async function handleUserTurn(
             },
           });
           toolResult = { ok: true, handoff };
+        } else if (name === "fetch_catalog") {
+          toolResult = siteToolPayload(await fetchCatalog());
+        } else if (name === "fetch_availability") {
+          const date = String(args.date || "").trim();
+          if (!date) {
+            toolResult = {
+              ok: false,
+              error: "date_required",
+              hint: "Ask the buyer for an explicit date first",
+            };
+          } else {
+            toolResult = siteToolPayload(await fetchAvailability(date));
+          }
+        } else if (name === "fetch_policy") {
+          toolResult = siteToolPayload(await fetchPolicy());
+        } else if (name === "fetch_booking_status") {
+          const orderId = String(
+            args.order_id || session.slots.orderId || ""
+          ).trim();
+          if (!orderId) {
+            toolResult = { ok: false, error: "order_id_required" };
+          } else {
+            toolResult = siteToolPayload(await fetchBookingStatus(orderId));
+          }
+        } else if (name === "fetch_customs_status") {
+          const requestId = String(
+            args.request_id || session.slots.customsRequestId || ""
+          ).trim();
+          if (!requestId) {
+            toolResult = { ok: false, error: "request_id_required" };
+          } else {
+            toolResult = siteToolPayload(await fetchCustomsStatus(requestId));
+          }
+        } else if (name === "fetch_compatible_practices") {
+          toolResult = siteToolPayload(
+            await fetchCompatiblePractices({
+              creator_ids: asStringArray(args.creator_ids),
+              creator_keys: asStringArray(args.creator_keys),
+            })
+          );
         } else {
           toolResult = { ok: false, error: "unknown tool" };
         }
@@ -251,7 +400,7 @@ export async function handleUserTurn(
 
   if (!finalReply) {
     finalReply = booked
-      ? "Done — I registered your booking request. The host will confirm soon."
+      ? "Done — I registered your booking request. The host will confirm soon. Checkout stays on the website (/book or /customs)."
       : handoff
         ? "Thanks — I’ve notified the host to continue this chat personally."
         : "Could you share a bit more about what you’re looking for and when?";

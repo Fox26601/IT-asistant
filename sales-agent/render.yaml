@@ -30,5 +30,9 @@ services:
         value: gemini-3.8-flash
       - key: WEBHOOK_SECRET
         sync: false
+      - key: SITE_BASE_URL
+        value: https://symbolicpleasures.com
+      - key: SITE_WEBHOOK_SECRET
+        sync: false
       - key: PUBLIC_BASE_URL
         sync: false

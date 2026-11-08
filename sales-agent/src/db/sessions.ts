@@ -12,6 +12,17 @@ export type DealSlots = {
   consentToBook?: boolean;
   notes?: string;
   clientName?: string;
+  buyerGender?: string;
+  buyerGenderCustom?: string;
+  topic?: string;
+  source?: string;
+  page?: string;
+  orderId?: string;
+  customsRequestId?: string;
+  meetingType?: string;
+  service?: string;
+  slot?: string;
+  priceUsd?: number | string;
 };
 
 export type ChatMessage = {

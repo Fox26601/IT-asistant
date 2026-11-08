@@ -1,6 +1,6 @@
 # Sales dialogue agent (Telegram + web → Calendar)
 
-Booking assistant for **symbolicpleasures.com**: qualifies clients in Telegram (text / photo / voice), accepts website leads, writes a Google Calendar hold, and pings you in Telegram.
+Booking assistant for **symbolicpleasures.com**: qualifies clients in Telegram (text / photo / voice), accepts website leads, reads live catalog/availability/policy from the site API, writes a Google Calendar hold, and pings you in Telegram.
 
 WhatsApp / Instagram are **not** included (Meta Business + adult-commerce policy limits).
 
@@ -24,11 +24,31 @@ npm install
 `GEMINI_API_KEY` from [Google AI Studio](https://aistudio.google.com/apikey).  
 Optional: `GEMINI_MODEL` (default `gemini-3.8-flash`).
 
-### 3) Google Calendar (optional)
+### 3) Site API
+
+Read-only tools call `SITE_BASE_URL/api/sales-agent/*` with header `x-webhook-secret: SITE_WEBHOOK_SECRET`.
+
+| Key | Notes |
+|---|---|
+| `SITE_BASE_URL` | default `https://symbolicpleasures.com` (no trailing slash) |
+| `SITE_WEBHOOK_SECRET` | same as site `SALES_AGENT_WEBHOOK_SECRET`; if empty, falls back to `WEBHOOK_SECRET` |
+
+Agent starts without a site secret (mock/dev), but site tools return `site_not_configured` until set.
+
+Smoke:
+
+```bash
+curl -sS "$SITE_BASE_URL/api/sales-agent/catalog" -H "x-webhook-secret: $SITE_WEBHOOK_SECRET"
+curl -sS "$SITE_BASE_URL/api/sales-agent/policy" -H "x-webhook-secret: $SITE_WEBHOOK_SECRET"
+# without header → 401
+curl -sS -o /dev/null -w "%{http_code}\n" "$SITE_BASE_URL/api/sales-agent/catalog"
+```
+
+### 4) Google Calendar (optional)
 
 `ALLOW_MOCK_INTEGRATIONS=true` until OAuth is done. Then `npm run auth:google`.
 
-### 4) Run locally
+### 5) Run locally
 
 ```bash
 npm run start
@@ -39,10 +59,10 @@ npm run start
 
 ## Deploy on Render (same workspace as the site)
 
-Repo: `daniil-bxvm8/IT-asistant`. Site stays as-is; agent is a **second Web Service**.
+Repo: GitHub `Fox26601/IT-asistant` (Render source). Site stays as-is; agent is a **second Web Service**.
 
-1. Render dashboard (account where symbolicpleasures.com lives) → **New → Web Service**
-2. Connect repo `daniil-bxvm8/IT-asistant`
+1. Render dashboard → **New → Web Service**
+2. Connect repo `Fox26601/IT-asistant`
 3. Settings:
    - **Root Directory:** `sales-agent`
    - **Runtime:** Docker (uses [`Dockerfile`](Dockerfile))  
@@ -58,7 +78,9 @@ Repo: `daniil-bxvm8/IT-asistant`. Site stays as-is; agent is a **second Web Serv
 | `TELEGRAM_WEBHOOK_SECRET` | long random string |
 | `GEMINI_API_KEY` | from AI Studio |
 | `GEMINI_MODEL` | `gemini-3.8-flash` (optional) |
-| `WEBHOOK_SECRET` | shared with the site |
+| `WEBHOOK_SECRET` | shared with the site inbound webhook |
+| `SITE_BASE_URL` | `https://symbolicpleasures.com` |
+| `SITE_WEBHOOK_SECRET` | same as site `SALES_AGENT_WEBHOOK_SECRET` (often = `WEBHOOK_SECRET`) |
 | `PUBLIC_BASE_URL` | `https://sales-agent-xxxx.onrender.com` (no trailing slash) |
 | `ALLOW_MOCK_INTEGRATIONS` | `true` until Google Calendar is wired |
 | `PORT` | `3847` (Render may override with `$PORT` — app reads `PORT`) |
@@ -75,7 +97,7 @@ On the **website** Render service env:
 | Key | Value |
 |---|---|
 | `SALES_AGENT_URL` | same as agent `PUBLIC_BASE_URL` |
-| `SALES_AGENT_WEBHOOK_SECRET` | same as agent `WEBHOOK_SECRET` |
+| `SALES_AGENT_WEBHOOK_SECRET` | same as agent `WEBHOOK_SECRET` / `SITE_WEBHOOK_SECRET` |
 
 Redeploy the site. Form proxy must `POST {SALES_AGENT_URL}/webhooks/site-lead` with header `x-webhook-secret`.
 
@@ -90,12 +112,38 @@ Redeploy the site. Form proxy must `POST {SALES_AGENT_URL}/webhooks/site-lead` w
 curl -X POST "$PUBLIC_BASE_URL/webhooks/site-lead" \
   -H "Content-Type: application/json" \
   -H "x-webhook-secret: YOUR_WEBHOOK_SECRET" \
-  -d '{"name":"Alex","contact":"@alex","message":"Looking for Saturday evening"}'
+  -d '{
+    "name":"Alex",
+    "contact":"@alex",
+    "message":"Looking for Saturday evening",
+    "topic":"booking",
+    "source":"site",
+    "page":"/book",
+    "buyer_gender":"man"
+  }'
 ```
 
-Response: `ok`, `sessionId`, `reply`, `continueInTelegram`.
+Response: `ok`, `sessionId`, `reply`, `continueInTelegram`, `suggestedPages` (`book` \| `customs` \| `browse`).
+
+Optional booking status seed:
+
+```json
+{
+  "booking": {
+    "order_id": "ord_…",
+    "meeting_type": "webcam",
+    "service": "session",
+    "slot": "2026-11-10T18:00:00+02:00",
+    "price_usd": 120
+  }
+}
+```
 
 ## Dialogue → deal
+
+Gemini tools: `update_slots`, `create_deal` (calendar hold + owner notify — **not** payment), `handoff_human`, plus site tools `fetch_catalog`, `fetch_availability`, `fetch_policy`, `fetch_booking_status`, `fetch_customs_status`, `fetch_compatible_practices`.
+
+Checkout CTAs stay on the site: `/book`, `/customs`, `/browse`.
 
 Collects: need, format, budget/package, preferred date-time, contact, consent → Calendar + owner Telegram.
 

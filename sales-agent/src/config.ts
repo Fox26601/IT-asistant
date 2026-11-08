@@ -49,6 +49,14 @@ export const config = {
     /\/$/,
     ""
   ),
+  siteBaseUrl: required(
+    "SITE_BASE_URL",
+    "https://symbolicpleasures.com"
+  ).replace(/\/$/, ""),
+  /** Same secret as site SALES_AGENT_WEBHOOK_SECRET; falls back to WEBHOOK_SECRET. */
+  siteWebhookSecret:
+    required("SITE_WEBHOOK_SECRET") ||
+    required("WEBHOOK_SECRET", "change-me"),
   googleClientId: required("GOOGLE_CLIENT_ID"),
   googleClientSecret: required("GOOGLE_CLIENT_SECRET"),
   googleRedirectUri: required(
