@@ -14,7 +14,10 @@ import {
 import { SYSTEM_PROMPT, SLOT_CHECKLIST } from "./prompts.js";
 import { createDealEvent } from "../integrations/googleCalendar.js";
 import { notifyOwnerDeal } from "../integrations/ownerNotify.js";
+import { trackEscalation } from "../db/escalations.js";
 import {
+  checkEscalations,
+  createEscalation,
   fetchAvailability,
   fetchBookingStatus,
   fetchCatalog,
@@ -147,7 +150,63 @@ const functionDeclarations: FunctionDeclaration[] = [
       },
     },
   },
+  {
+    name: "escalate_to_operator",
+    description:
+      "Ask the site operator when catalog/policy lack an explicit answer. If not_available, fall back to /contact or booking CTAs.",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        question: {
+          type: SchemaType.STRING,
+          description: "One clear question for the operator",
+        },
+        topic: { type: SchemaType.STRING },
+        proposed_answer: {
+          type: SchemaType.STRING,
+          description: "What you would have guessed if inventing were allowed",
+        },
+        practice_ids: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+        },
+      },
+      required: ["question"],
+    },
+  },
+  {
+    name: "check_escalations",
+    description: "Check status of pending operator escalations by id",
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        ids: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+        },
+      },
+      required: ["ids"],
+    },
+  },
 ];
+
+function buildEscalationContext(session: Session): string {
+  const recent = session.messages.slice(-6).map((m) => {
+    const role = m.role === "assistant" ? "assistant" : "user";
+    return `${role}: ${m.content.slice(0, 400)}`;
+  });
+  return [
+    `slots: ${JSON.stringify(session.slots)}`,
+    ...recent,
+  ].join("\n");
+}
+
+function extractEscalationId(data: unknown): string | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const obj = data as Record<string, unknown>;
+  const id = obj.escalation_id ?? obj.id;
+  return id != null && String(id).trim() ? String(id) : undefined;
+}
 
 function missingSlots(slots: DealSlots): string[] {
   const missing: string[] = [];
@@ -386,6 +445,50 @@ export async function handleUserTurn(
               creator_keys: asStringArray(args.creator_keys),
             })
           );
+        } else if (name === "escalate_to_operator") {
+          const question = String(args.question || "").trim();
+          if (!question) {
+            toolResult = { ok: false, error: "question_required" };
+          } else {
+            const created = await createEscalation({
+              question,
+              topic: args.topic ? String(args.topic) : session.slots.topic,
+              proposed_answer: args.proposed_answer
+                ? String(args.proposed_answer)
+                : undefined,
+              context_excerpt: buildEscalationContext(session),
+              session_id: session.id,
+              practice_ids: asStringArray(args.practice_ids),
+            });
+            if (!created.ok) {
+              toolResult = {
+                ...siteToolPayload(created),
+                fallback:
+                  "Tell buyer you cannot confirm from catalog; suggest /contact or /book|/customs|/browse. Do not promise a follow-up.",
+              };
+            } else {
+              const escalationId = extractEscalationId(created.data);
+              if (escalationId) {
+                trackEscalation({
+                  escalationId,
+                  sessionId: session.id,
+                  question,
+                });
+              }
+              toolResult = {
+                ...siteToolPayload(created),
+                escalation_id: escalationId,
+                hint: "Tell the buyer you will check with the operator and follow up.",
+              };
+            }
+          }
+        } else if (name === "check_escalations") {
+          const ids = asStringArray(args.ids) || [];
+          if (!ids.length) {
+            toolResult = { ok: false, error: "ids_required" };
+          } else {
+            toolResult = siteToolPayload(await checkEscalations(ids));
+          }
         } else {
           toolResult = { ok: false, error: "unknown tool" };
         }

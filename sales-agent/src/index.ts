@@ -11,6 +11,8 @@ import {
   registerTelegramWebhook,
 } from "./channels/telegram.js";
 import { createWebApp } from "./channels/web.js";
+import { startEscalationPoller } from "./integrations/escalationPoller.js";
+import "./db/escalations.js";
 
 async function main() {
   assertRuntimeConfig();
@@ -28,6 +30,7 @@ async function main() {
     console.log(`[http] listening on port ${info.port}`);
     console.log(`[http] POST /webhooks/site-lead (header x-webhook-secret)`);
     console.log(`[http] PUBLIC_BASE_URL=${config.publicBaseUrl}`);
+    startEscalationPoller();
 
     if (!config.ownerChatId) {
       console.warn(

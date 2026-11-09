@@ -37,7 +37,9 @@ Agent starts without a site secret (mock/dev), but site tools return `site_not_c
 
 `fetch_catalog` and `fetch_policy` use an in-process **TTL cache (~5 min)**. Availability and status endpoints are always fresh. Policy `hard_limits` / `limits_text` are stripped before the model sees them.
 
-If catalog/policy do not answer a question, the agent must not invent facts — it points buyers to `/contact` or `/book` | `/customs` | `/browse`. Operator escalation (`/api/sales-agent/escalations`) is **upcoming** (Part B) and not wired yet.
+If catalog/policy do not answer a question, the agent calls **`escalate_to_operator`** → site admin AI tab (`https://symbolicpleasures.com/admin?tab=ai`). A background poller (~every 3 min) checks pending ids and follow-ups the buyer in Telegram (paraphrased). Web sessions store the reply on the session and notify the owner.
+
+If `/api/sales-agent/escalations` is still **404**, tools return `not_available` and the agent falls back to `/contact` or `/book` | `/customs` | `/browse` (no follow-up promise).
 
 Smoke:
 
@@ -46,6 +48,10 @@ curl -sS "$SITE_BASE_URL/api/sales-agent/catalog" -H "x-webhook-secret: $SITE_WE
 curl -sS "$SITE_BASE_URL/api/sales-agent/policy" -H "x-webhook-secret: $SITE_WEBHOOK_SECRET"
 # without header → 401
 curl -sS -o /dev/null -w "%{http_code}\n" "$SITE_BASE_URL/api/sales-agent/catalog"
+# escalations (200 when site Part B is live; 404 until then)
+curl -sS -w "\n%{http_code}\n" -X POST "$SITE_BASE_URL/api/sales-agent/escalations" \
+  -H "x-webhook-secret: $SITE_WEBHOOK_SECRET" -H "Content-Type: application/json" \
+  -d '{"question":"smoke","topic":"smoke","session_id":"smoke"}'
 ```
 
 ### 4) Google Calendar (optional)
@@ -145,9 +151,9 @@ Optional booking status seed:
 
 ## Dialogue → deal
 
-Gemini tools: `update_slots`, `create_deal` (calendar hold + owner notify — **not** payment), `handoff_human`, plus site tools `fetch_catalog`, `fetch_availability`, `fetch_policy`, `fetch_booking_status`, `fetch_customs_status`, `fetch_compatible_practices`.
+Gemini tools: `update_slots`, `create_deal` (calendar hold + owner notify — **not** payment), `handoff_human`, site read tools (`fetch_catalog`, `fetch_availability`, `fetch_policy`, `fetch_booking_status`, `fetch_customs_status`, `fetch_compatible_practices`), plus `escalate_to_operator` / `check_escalations`.
 
-Checkout CTAs stay on the site: `/book`, `/customs`, `/browse` (plus `/contact` when a fact is missing from the catalog).
+Checkout CTAs stay on the site: `/book`, `/customs`, `/browse` (plus `/contact` when escalations API is unavailable).
 
 Collects: need, format, budget/package, preferred date-time, contact, consent → Calendar + owner Telegram.
 

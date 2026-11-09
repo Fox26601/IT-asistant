@@ -45,7 +45,8 @@ export type Session = {
 
 mkdirSync(config.dataDir, { recursive: true });
 const dbPath = resolve(config.dataDir, "sessions.sqlite");
-const db = new DatabaseSync(dbPath);
+/** Shared SQLite handle (sessions + escalations). */
+export const db = new DatabaseSync(dbPath);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (

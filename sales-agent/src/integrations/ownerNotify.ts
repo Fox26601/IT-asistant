@@ -91,3 +91,58 @@ export async function notifyOwnerLead(input: {
     console.error("[ownerNotify] lead notify failed", err);
   }
 }
+
+/** Send a message to a Telegram buyer chat id (externalUserId). */
+export async function sendTelegramMessage(
+  chatId: string,
+  text: string
+): Promise<boolean> {
+  const b = getBot();
+  if (!b) {
+    console.warn("[telegramSend] no bot token");
+    return false;
+  }
+  try {
+    await b.api.sendMessage(chatId, text);
+    return true;
+  } catch (err) {
+    console.error("[telegramSend] sendMessage failed", err);
+    return false;
+  }
+}
+
+export async function notifyOwnerEscalationAnswer(input: {
+  sessionId: string;
+  channel: string;
+  escalationId: string;
+  question: string;
+  answer: string;
+  deliveredToBuyer: boolean;
+}): Promise<void> {
+  const text = [
+    "✅ Operator escalation answered",
+    `Session: ${input.sessionId}`,
+    `Channel: ${input.channel}`,
+    `Escalation: ${input.escalationId}`,
+    `Q: ${input.question}`,
+    `A: ${input.answer.slice(0, 800)}`,
+    input.deliveredToBuyer
+      ? "Delivered to buyer (Telegram)."
+      : "Stored on session / owner-only (web or delivery failed).",
+  ].join("\n");
+
+  if (!config.ownerChatId || !config.telegramToken) {
+    console.log(text);
+    return;
+  }
+  const b = getBot();
+  if (!b) {
+    console.log(text);
+    return;
+  }
+  try {
+    await b.api.sendMessage(config.ownerChatId, text);
+  } catch (err) {
+    console.error("[ownerNotify] escalation notify failed", err);
+  }
+}

@@ -120,8 +120,17 @@ function seedLeadSlots(body: LeadBody, contact: string): DealSlots {
 export function createWebApp() {
   const app = new Hono();
 
-  app.get("/health", (c) =>
-    c.json({
+  app.get("/health", async (c) => {
+    let escalationsApi = false;
+    try {
+      const { escalationsAvailable } = await import(
+        "../integrations/siteApi.js"
+      );
+      escalationsApi = await escalationsAvailable();
+    } catch {
+      escalationsApi = false;
+    }
+    return c.json({
       ok: true,
       hasGemini: Boolean(config.geminiApiKey),
       hasTelegram: Boolean(config.telegramToken),
@@ -130,9 +139,10 @@ export function createWebApp() {
       publicBaseUrl: config.publicBaseUrl,
       siteBaseUrl: config.siteBaseUrl,
       hasSiteSecret: Boolean(config.siteWebhookSecret),
+      escalationsApi,
       mockCalendar: config.allowMock,
-    })
-  );
+    });
+  });
 
   app.post("/webhooks/site-lead", async (c) => {
     const secret = c.req.header("x-webhook-secret") || c.req.query("secret");
