@@ -21,6 +21,7 @@ import {
   fetchCompatiblePractices,
   fetchCustomsStatus,
   fetchPolicy,
+  sanitizePolicyForModel,
   type SiteApiResult,
 } from "../integrations/siteApi.js";
 
@@ -353,7 +354,13 @@ export async function handleUserTurn(
             toolResult = siteToolPayload(await fetchAvailability(date));
           }
         } else if (name === "fetch_policy") {
-          toolResult = siteToolPayload(await fetchPolicy());
+          const policy = await fetchPolicy();
+          toolResult = siteToolPayload({
+            ...policy,
+            data: policy.ok
+              ? sanitizePolicyForModel(policy.data)
+              : policy.data,
+          });
         } else if (name === "fetch_booking_status") {
           const orderId = String(
             args.order_id || session.slots.orderId || ""

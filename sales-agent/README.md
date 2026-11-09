@@ -35,6 +35,10 @@ Read-only tools call `SITE_BASE_URL/api/sales-agent/*` with header `x-webhook-se
 
 Agent starts without a site secret (mock/dev), but site tools return `site_not_configured` until set.
 
+`fetch_catalog` and `fetch_policy` use an in-process **TTL cache (~5 min)**. Availability and status endpoints are always fresh. Policy `hard_limits` / `limits_text` are stripped before the model sees them.
+
+If catalog/policy do not answer a question, the agent must not invent facts — it points buyers to `/contact` or `/book` | `/customs` | `/browse`. Operator escalation (`/api/sales-agent/escalations`) is **upcoming** (Part B) and not wired yet.
+
 Smoke:
 
 ```bash
@@ -143,7 +147,7 @@ Optional booking status seed:
 
 Gemini tools: `update_slots`, `create_deal` (calendar hold + owner notify — **not** payment), `handoff_human`, plus site tools `fetch_catalog`, `fetch_availability`, `fetch_policy`, `fetch_booking_status`, `fetch_customs_status`, `fetch_compatible_practices`.
 
-Checkout CTAs stay on the site: `/book`, `/customs`, `/browse`.
+Checkout CTAs stay on the site: `/book`, `/customs`, `/browse` (plus `/contact` when a fact is missing from the catalog).
 
 Collects: need, format, budget/package, preferred date-time, contact, consent → Calendar + owner Telegram.
 
