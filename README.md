@@ -2,14 +2,13 @@
 
 Sales booking agent for [symbolicpleasures.com](https://symbolicpleasures.com): Telegram + website leads → LLM dialogue → Google Calendar + owner Telegram notify.
 
-Repo: https://cursor.com/codebase/daniil-bxvm8/IT-asistant
+Repo: https://github.com/Fox26601/IT-asistant
 
 | Path | What it is |
 |---|---|
 | [`sales-agent/`](sales-agent/) | Bot + HTTP webhooks, SQLite sessions, Render deploy (`Dockerfile`, `render.yaml`) |
 
-UA GovTech job outreach (CSV, letters, SMTP) moved to a separate repo:  
-**[daniil-bxvm8/ua-govtech-outreach](https://cursor.com/codebase/daniil-bxvm8/ua-govtech-outreach)**
+UA GovTech job outreach (CSV, letters, SMTP) moved to a separate repo (`ua-govtech-outreach`).
 
 ---
 
