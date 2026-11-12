@@ -37,7 +37,7 @@ Agent starts without a site secret (mock/dev), but site tools return `site_not_c
 
 `fetch_catalog` and `fetch_policy` use an in-process **TTL cache (~5 min)**. Availability and status endpoints are always fresh. Policy `hard_limits` / `limits_text` are stripped before the model sees them.
 
-If catalog/policy do not answer a question, the agent calls **`escalate_to_operator`** → site admin AI tab (`https://symbolicpleasures.com/admin?tab=ai`). A background poller (~every 3 min) checks pending ids and follow-ups the buyer in Telegram (paraphrased). Web sessions store the reply on the session and notify the owner.
+If catalog/policy do not answer a question, the agent calls **`escalate_to_operator`** → site admin AI tab (`https://symbolicpleasures.com/admin?tab=ai`). A background poller (~every 3 min) checks pending ids: **answered** → paraphrase follow-up to the buyer in Telegram; **dismissed** → short “not confirmed” + `/book` or `/contact`, then clear pending. Web sessions store the reply on the session and notify the owner.
 
 If `/api/sales-agent/escalations` is still **404**, tools return `not_available` and the agent falls back to `/contact` or `/book` | `/customs` | `/browse` (no follow-up promise).
 

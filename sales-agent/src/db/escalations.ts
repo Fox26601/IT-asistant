@@ -4,7 +4,7 @@ export type EscalationRecord = {
   escalationId: string;
   sessionId: string;
   question: string;
-  status: "pending" | "answered" | "delivered" | "failed";
+  status: "pending" | "answered" | "dismissed" | "delivered" | "failed";
   answer?: string;
   createdAt: string;
   updatedAt: string;
@@ -55,7 +55,7 @@ export function trackEscalation(input: {
      ON CONFLICT(escalation_id, session_id) DO UPDATE SET
        question = excluded.question,
        status = CASE
-         WHEN escalations.status IN ('delivered', 'answered') THEN escalations.status
+         WHEN escalations.status IN ('delivered', 'answered', 'dismissed') THEN escalations.status
          ELSE 'pending'
        END,
        updated_at = excluded.updated_at`
@@ -106,6 +106,20 @@ export function listPendingEscalationIds(): string[] {
   return rows.map((r) => String(r.escalation_id));
 }
 
+/** Pending escalation ids for one session (tool fallback when ids omitted). */
+export function listPendingEscalationIdsForSession(
+  sessionId: string
+): string[] {
+  const rows = db
+    .prepare(
+      `SELECT escalation_id FROM escalations
+       WHERE session_id = ? AND status = 'pending'
+       ORDER BY created_at ASC`
+    )
+    .all(sessionId) as { escalation_id: string }[];
+  return rows.map((r) => String(r.escalation_id));
+}
+
 export function sessionsForEscalationId(
   escalationId: string
 ): EscalationRecord[] {
@@ -127,6 +141,17 @@ export function markAnswered(
       updated_at = ?
      WHERE escalation_id = ? AND status IN ('pending', 'answered')`
   ).run(answer, now, escalationId);
+}
+
+/** Mark site-dismissed escalations so they leave the pending poll set. */
+export function markDismissed(escalationId: string): void {
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE escalations SET
+      status = CASE WHEN status = 'delivered' THEN 'delivered' ELSE 'dismissed' END,
+      updated_at = ?
+     WHERE escalation_id = ? AND status IN ('pending', 'answered', 'dismissed')`
+  ).run(now, escalationId);
 }
 
 export function markDelivered(

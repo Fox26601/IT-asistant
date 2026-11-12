@@ -5,6 +5,7 @@ import {
   listPendingEscalations,
   markAnswered,
   markDelivered,
+  markDismissed,
   markFailed,
   sessionsForEscalationId,
 } from "../db/escalations.js";
@@ -123,36 +124,64 @@ export async function pollEscalationsOnce(): Promise<void> {
     const rows = (result.data as EscalationStatusRow[]) || [];
     for (const row of rows) {
       if (!row.escalation_id) continue;
-      if (String(row.status).toLowerCase() !== "answered") continue;
-      const answer = (row.answer || "").trim();
-      if (!answer) continue;
+      const status = String(row.status).toLowerCase();
 
-      markAnswered(row.escalation_id, answer);
+      if (status === "answered") {
+        const answer = (row.answer || "").trim();
+        if (!answer) continue;
 
-      const linked = sessionsForEscalationId(row.escalation_id).filter(
-        (r) => r.status === "answered" || r.status === "pending"
-      );
-      // Prefer records just marked answered
-      const targets =
-        linked.length > 0
-          ? linked.filter((r) => r.status !== "delivered")
-          : listPendingEscalations().filter(
-              (r) => r.escalationId === row.escalation_id
-            );
+        markAnswered(row.escalation_id, answer);
 
-      for (const rec of targets) {
-        if (rec.status === "delivered") continue;
-        const followUp = await paraphraseAnswer({
-          question: rec.question,
-          answer,
-        });
-        await deliverToSession({
-          escalationId: rec.escalationId,
-          sessionId: rec.sessionId,
-          question: rec.question,
-          answer,
-          followUp,
-        });
+        const linked = sessionsForEscalationId(row.escalation_id).filter(
+          (r) => r.status === "answered" || r.status === "pending"
+        );
+        const targets =
+          linked.length > 0
+            ? linked.filter((r) => r.status !== "delivered")
+            : listPendingEscalations().filter(
+                (r) => r.escalationId === row.escalation_id
+              );
+
+        for (const rec of targets) {
+          if (rec.status === "delivered") continue;
+          const followUp = await paraphraseAnswer({
+            question: rec.question,
+            answer,
+          });
+          await deliverToSession({
+            escalationId: rec.escalationId,
+            sessionId: rec.sessionId,
+            question: rec.question,
+            answer,
+            followUp,
+          });
+        }
+        continue;
+      }
+
+      if (status === "dismissed") {
+        markDismissed(row.escalation_id);
+
+        const linked = sessionsForEscalationId(row.escalation_id).filter(
+          (r) =>
+            r.status === "dismissed" ||
+            r.status === "pending" ||
+            r.status === "answered"
+        );
+        const targets = linked.filter((r) => r.status !== "delivered");
+
+        for (const rec of targets) {
+          if (rec.status === "delivered") continue;
+          const followUp =
+            "The host could not confirm that from our catalog. Please use /book or /contact on the site if you still want to continue.";
+          await deliverToSession({
+            escalationId: rec.escalationId,
+            sessionId: rec.sessionId,
+            question: rec.question,
+            answer: "(dismissed by operator)",
+            followUp,
+          });
+        }
       }
     }
   } catch (err) {

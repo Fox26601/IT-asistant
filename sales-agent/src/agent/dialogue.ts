@@ -14,7 +14,10 @@ import {
 import { SYSTEM_PROMPT, SLOT_CHECKLIST } from "./prompts.js";
 import { createDealEvent } from "../integrations/googleCalendar.js";
 import { notifyOwnerDeal } from "../integrations/ownerNotify.js";
-import { trackEscalation } from "../db/escalations.js";
+import {
+  listPendingEscalationIdsForSession,
+  trackEscalation,
+} from "../db/escalations.js";
 import {
   checkEscalations,
   createEscalation,
@@ -176,16 +179,18 @@ const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: "check_escalations",
-    description: "Check status of pending operator escalations by id",
+    description:
+      "Check status of operator escalations. Pass ids, or omit to use this session's pending escalation ids.",
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
         ids: {
           type: SchemaType.ARRAY,
           items: { type: SchemaType.STRING },
+          description:
+            "Escalation ids (≤50). Optional — defaults to pending ids for this session.",
         },
       },
-      required: ["ids"],
     },
   },
 ];
@@ -206,6 +211,26 @@ function extractEscalationId(data: unknown): string | undefined {
   const obj = data as Record<string, unknown>;
   const id = obj.escalation_id ?? obj.id;
   return id != null && String(id).trim() ? String(id) : undefined;
+}
+
+function extractEscalationCreateMeta(data: unknown): {
+  created?: boolean;
+  occurrences?: number;
+  status?: string;
+} {
+  if (!data || typeof data !== "object") return {};
+  const obj = data as Record<string, unknown>;
+  const meta: {
+    created?: boolean;
+    occurrences?: number;
+    status?: string;
+  } = {};
+  if (typeof obj.created === "boolean") meta.created = obj.created;
+  if (typeof obj.occurrences === "number") meta.occurrences = obj.occurrences;
+  if (obj.status != null && String(obj.status).trim()) {
+    meta.status = String(obj.status);
+  }
+  return meta;
 }
 
 function missingSlots(slots: DealSlots): string[] {
@@ -468,6 +493,7 @@ export async function handleUserTurn(
               };
             } else {
               const escalationId = extractEscalationId(created.data);
+              const meta = extractEscalationCreateMeta(created.data);
               if (escalationId) {
                 trackEscalation({
                   escalationId,
@@ -478,14 +504,23 @@ export async function handleUserTurn(
               toolResult = {
                 ...siteToolPayload(created),
                 escalation_id: escalationId,
+                ...meta,
                 hint: "Tell the buyer you will check with the operator and follow up.",
               };
             }
           }
         } else if (name === "check_escalations") {
-          const ids = asStringArray(args.ids) || [];
+          const provided = asStringArray(args.ids) || [];
+          const ids = provided.length
+            ? provided
+            : listPendingEscalationIdsForSession(session.id);
           if (!ids.length) {
-            toolResult = { ok: false, error: "ids_required" };
+            toolResult = {
+              ok: true,
+              status: 200,
+              data: [],
+              note: "no pending escalations for this session",
+            };
           } else {
             toolResult = siteToolPayload(await checkEscalations(ids));
           }

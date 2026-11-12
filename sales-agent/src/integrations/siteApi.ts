@@ -23,6 +23,13 @@ function siteConfigured(): boolean {
 
 function mapHttpError(status: number, body: unknown): string {
   if (status === 401) return "unauthorized";
+  if (status === 400) {
+    const err =
+      body && typeof body === "object" && "error" in body
+        ? String((body as { error?: unknown }).error || "").trim()
+        : "";
+    return err || "question_required";
+  }
   if (status === 429) return "rate_limited";
   if (status === 503) {
     const err =
@@ -254,15 +261,7 @@ export async function checkEscalations(
     if (Array.isArray(data)) {
       for (const row of data) {
         if (row && typeof row === "object") {
-          const r = row as Record<string, unknown>;
-          rows.push({
-            escalation_id: String(r.escalation_id || r.id || ""),
-            status: String(r.status || ""),
-            answer:
-              r.answer == null ? null : String(r.answer),
-            resolved_at:
-              r.resolved_at == null ? null : String(r.resolved_at),
-          });
+          rows.push(normalizeEscalationStatusRow(row as Record<string, unknown>));
         }
       }
     } else if (data && typeof data === "object" && "escalations" in data) {
@@ -270,20 +269,33 @@ export async function checkEscalations(
       if (Array.isArray(list)) {
         for (const row of list) {
           if (row && typeof row === "object") {
-            const r = row as Record<string, unknown>;
-            rows.push({
-              escalation_id: String(r.escalation_id || r.id || ""),
-              status: String(r.status || ""),
-              answer: r.answer == null ? null : String(r.answer),
-              resolved_at:
-                r.resolved_at == null ? null : String(r.resolved_at),
-            });
+            rows.push(
+              normalizeEscalationStatusRow(row as Record<string, unknown>)
+            );
           }
         }
       }
     }
   }
   return { ok: true, status: lastStatus, data: rows };
+}
+
+/** answer is only meaningful when status=answered (handoff contract). */
+function normalizeEscalationStatusRow(
+  r: Record<string, unknown>
+): EscalationStatusRow {
+  const status = String(r.status || "");
+  const answered = status.toLowerCase() === "answered";
+  return {
+    escalation_id: String(r.escalation_id || r.id || ""),
+    status,
+    answer: answered
+      ? r.answer == null
+        ? null
+        : String(r.answer)
+      : null,
+    resolved_at: r.resolved_at == null ? null : String(r.resolved_at),
+  };
 }
 
 /** Remove hard_limits / limits_text so the model cannot quote them to buyers. */
