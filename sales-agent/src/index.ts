@@ -12,10 +12,12 @@ import {
 } from "./channels/telegram.js";
 import { createWebApp } from "./channels/web.js";
 import { startEscalationPoller } from "./integrations/escalationPoller.js";
+import { assertOwnerChatConfigured } from "./integrations/ownerChat.js";
 import "./db/escalations.js";
 
 async function main() {
   assertRuntimeConfig();
+  await assertOwnerChatConfigured();
 
   const app = createWebApp();
   const bot = createClientBot();

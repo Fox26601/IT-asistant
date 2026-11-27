@@ -9,9 +9,36 @@ import { getOrCreateOpenSession, saveSession } from "../db/sessions.js";
 import { handleUserTurn } from "../agent/dialogue.js";
 import { describePhoto } from "../media/photo.js";
 import { transcribeAudio } from "../media/audio.js";
+import {
+  resolveBotId,
+  setOwnerChatOverride,
+} from "../integrations/ownerChat.js";
 
 export function createClientBot(): Bot {
   const bot = new Bot(config.telegramToken);
+
+  /** Owner: DM /owner → saves your user chat.id for ops/lead notifies. */
+  bot.command("owner", async (ctx) => {
+    const chatId = ctx.chat?.id;
+    const fromId = ctx.from?.id;
+    if (!chatId || ctx.chat.type !== "private" || !fromId) {
+      await ctx.reply("Run /owner in a private chat with this bot.");
+      return;
+    }
+    const botId = await resolveBotId();
+    if (botId && String(fromId) === botId) {
+      await ctx.reply("This chat is the bot itself — use your personal Telegram account.");
+      return;
+    }
+    setOwnerChatOverride(String(chatId));
+    await ctx.reply(
+      [
+        "Owner chat registered for notifies.",
+        `chat_id=${chatId}`,
+        "Also set Render env OWNER_TELEGRAM_CHAT_ID to this value (survives redeploy).",
+      ].join("\n")
+    );
+  });
 
   bot.command("start", async (ctx) => {
     const userId = String(ctx.from?.id || ctx.chat?.id);
