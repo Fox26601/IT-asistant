@@ -11,7 +11,7 @@
       "includeFiles": "src/**"
     }
   },
-  "rewwrites": [
+  "rewrites": [
     {
       "source": "/(.*)",
       "destination": "/api"
