@@ -17,9 +17,9 @@ import {
 } from "../integrations/ownerNotify.js";
 import {
   sendCorpMail,
-  smtpConfigured,
-  smtpStatus,
-} from "../integrations/smtpMail.js";
+  mailConfigured,
+  mailStatus,
+} from "../integrations/corpMail.js";
 
 /** In-process ops-alert dedupe: fingerprint → last sent ms. */
 const opsAlertDedupe = new Map<string, number>();
@@ -154,14 +154,17 @@ export function createWebApp() {
       escalationsApi,
       opsAlert: true,
       mockCalendar: config.allowMock,
-      smtp: smtpStatus(),
+      mail: mailStatus(),
+      /** @deprecated use mail — kept during Vercel migrate */
+      smtp: mailStatus(),
+      runtime: config.isVercel ? "vercel" : "node",
     });
   });
 
   /**
    * One-off corp outbound mail (PayPal Support, ops). Auth: x-webhook-secret.
    * Body: { to, subject, text, confirm: "SEND" [, replyTo ] }
-   * Does not touch HornyFans — SMTP_* must be set on this Render service.
+   * Prefer RESEND_API_KEY; SMTP_* is fallback. No SMTP_FROM_NAME.
    */
 
   /** Site ops alerts → owner Telegram (same bot/chat as leads). */
@@ -230,13 +233,13 @@ export function createWebApp() {
     if (!secret || secret !== config.webhookSecret) {
       return c.json({ error: "unauthorized" }, 401);
     }
-    if (!smtpConfigured()) {
+    if (!mailConfigured()) {
       return c.json(
         {
-          error: "smtp_not_configured",
+          error: "mail_not_configured",
           detail:
-            "Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM on IT-asistant (same corp mailbox as site).",
-          smtp: smtpStatus(),
+            "Prefer RESEND_API_KEY + MAIL_FROM (or SMTP_FROM). SMTP_* remains a fallback. Do not set SMTP_FROM_NAME.",
+          mail: mailStatus(),
         },
         503
       );
@@ -275,9 +278,13 @@ export function createWebApp() {
         replyTo: body.replyTo,
       });
       console.log(
-        `[corp-mail] sent to=${body.to.trim()} subject=${body.subject.trim().slice(0, 80)} id=${result.messageId}`
+        `[corp-mail] provider=${result.provider} to=${body.to.trim()} subject=${body.subject.trim().slice(0, 80)} id=${result.messageId}`
       );
-      return c.json({ ok: true, messageId: result.messageId });
+      return c.json({
+        ok: true,
+        messageId: result.messageId,
+        provider: result.provider,
+      });
     } catch (err) {
       console.error("[corp-mail]", err);
       return c.json(

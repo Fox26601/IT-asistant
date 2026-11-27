@@ -6,7 +6,7 @@ Repo: https://github.com/Fox26601/IT-asistant
 
 | Path | What it is |
 |---|---|
-| [`sales-agent/`](sales-agent/) | Bot + HTTP webhooks, SQLite sessions, Render deploy (`Dockerfile`, `render.yaml`) |
+| [`sales-agent/`](sales-agent/) | Bot + HTTP webhooks, SQLite sessions, **Vercel** deploy (`vercel.json`, `api/`) |
 
 UA GovTech job outreach (CSV, letters, SMTP) moved to a separate repo (`ua-govtech-outreach`).
 
@@ -24,6 +24,6 @@ npm run start          # local: long-poll + HTTP :3847
 - Clients: text / photo / voice in Telegram.
 - Site: `POST /webhooks/site-lead` with `x-webhook-secret`.
 - Deal → Calendar (or mock) + Telegram alert to the owner.
-- **Render:** second Web Service next to the site — [deploy guide](sales-agent/README.md#deploy-on-render-same-workspace-as-the-site). HTTPS `PUBLIC_BASE_URL` enables Telegram webhook; localhost keeps long polling.
+- **Vercel:** root `sales-agent` — [deploy guide](sales-agent/README.md#deploy-on-vercel-primary). HTTPS `PUBLIC_BASE_URL` + Telegram **webhook** (no long-poll on serverless). Mail: **Resend** preferred (`RESEND_API_KEY`); SMTP fallback.
 
 Full runbook: [`sales-agent/README.md`](sales-agent/README.md).

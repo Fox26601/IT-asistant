@@ -35,7 +35,7 @@ export function createClientBot(): Bot {
       [
         "Owner chat registered for notifies.",
         `chat_id=${chatId}`,
-        "Also set Render env OWNER_TELEGRAM_CHAT_ID to this value (survives redeploy).",
+        "Also set OWNER_TELEGRAM_CHAT_ID on Vercel (Project → Settings → Environment Variables) so it survives redeploy.",
       ].join("\n")
     );
   });

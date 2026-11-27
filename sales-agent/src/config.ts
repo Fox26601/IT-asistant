@@ -67,8 +67,23 @@ export const config = {
   googleCalendarId: required("GOOGLE_CALENDAR_ID", "primary"),
   tz: required("TZ", "Europe/Kyiv"),
   allowMock: required("ALLOW_MOCK_INTEGRATIONS", "true") === "true",
-  dataDir: resolve(import.meta.dirname, "../data"),
-  /** Corp outbound mail (same SMTP_* names as site password-reset / support intake). Optional until set. */
+  /**
+   * Session SQLite dir. On Vercel the filesystem is ephemeral — use /tmp.
+   * Local / Docker / Render: sales-agent/data.
+   */
+  dataDir: process.env.VERCEL
+    ? "/tmp/sales-agent-data"
+    : resolve(import.meta.dirname, "../data"),
+  /** True when running on Vercel serverless (no long-poll / no setInterval poller). */
+  isVercel: Boolean(process.env.VERCEL),
+  /** Protects /cron/* (Vercel Cron Authorization: Bearer CRON_SECRET). */
+  cronSecret: required("CRON_SECRET"),
+  /**
+   * Prefer Resend HTTP on serverless (SMTP ports often blocked).
+   * From address: MAIL_FROM or SMTP_FROM — bare address only, never SMTP_FROM_NAME.
+   */
+  resendApiKey: required("RESEND_API_KEY"),
+  /** Corp outbound SMTP fallback (same SMTP_* names as site). Optional until set. */
   smtpHost: required("SMTP_HOST"),
   smtpPort: Number(required("SMTP_PORT", "587")) || 587,
   smtpUser: required("SMTP_USER"),
@@ -77,10 +92,20 @@ export const config = {
   smtpFrom: required("SMTP_FROM"),
   /** auto | starttls | ssl | plain — empty = auto (465→ssl, else starttls) */
   smtpTlsMode: required("SMTP_TLS_MODE", "auto").toLowerCase(),
+  /**
+   * Outbound From for Resend (and health display). Bare address only.
+   * Falls back to SMTP_FROM. Do not set SMTP_FROM_NAME.
+   */
+  mailFrom: required("MAIL_FROM") || required("SMTP_FROM"),
 };
 
-/** Production / Render: public HTTPS URL → Telegram webhook. Localhost → long polling. */
+/**
+ * Production HTTPS URL → Telegram webhook.
+ * Vercel always uses webhook (long-poll cannot run on serverless).
+ * Localhost → long polling (Node process only).
+ */
 export function useTelegramWebhook(): boolean {
+  if (config.isVercel) return true;
   const base = config.publicBaseUrl.toLowerCase();
   if (!base.startsWith("https://")) return false;
   if (base.includes("localhost") || base.includes("127.0.0.1")) return false;
