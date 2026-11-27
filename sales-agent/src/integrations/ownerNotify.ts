@@ -146,3 +146,62 @@ export async function notifyOwnerEscalationAnswer(input: {
     console.error("[ownerNotify] escalation notify failed", err);
   }
 }
+
+export type OpsAlertInput = {
+  severity: string;
+  code: string;
+  fingerprint?: string;
+  count?: number;
+  text: string;
+  meta?: Record<string, unknown>;
+};
+
+/** Site → ops-alert webhook → owner Telegram (Russian text from site). */
+export async function notifyOwnerOpsAlert(
+  input: OpsAlertInput
+): Promise<boolean> {
+  const severity = (input.severity || "P1").trim().toUpperCase() || "P1";
+  const code = (input.code || "ops.unknown").trim() || "ops.unknown";
+  const count =
+    typeof input.count === "number" && input.count > 1
+      ? ` ×${Math.floor(input.count)}`
+      : "";
+  const emoji =
+    severity === "P0" ? "🚨" : severity === "P2" ? "⚠️" : "🔔";
+  const lines = [
+    `${emoji} [${severity}] ${code}${count}`,
+    input.text.trim(),
+  ];
+  const fp = (input.fingerprint || "").trim();
+  if (fp) lines.push(`fingerprint: ${fp}`);
+  const meta = input.meta;
+  if (meta && typeof meta === "object") {
+    const rid = meta.request_id ?? meta.requestId;
+    const path = meta.path;
+    if (rid != null && String(rid).trim()) {
+      lines.push(`request_id=${String(rid).trim()}`);
+    }
+    if (path != null && String(path).trim()) {
+      lines.push(`path=${String(path).trim()}`);
+    }
+  }
+  const text = lines.filter(Boolean).join("\n").slice(0, 3500);
+
+  if (!config.ownerChatId || !config.telegramToken) {
+    console.warn("[ownerNotify] ops-alert — logging only (no owner chat/token)");
+    console.log(text);
+    return true;
+  }
+  const b = getBot();
+  if (!b) {
+    console.log(text);
+    return true;
+  }
+  try {
+    await b.api.sendMessage(config.ownerChatId, text);
+    return true;
+  } catch (err) {
+    console.error("[ownerNotify] ops-alert send failed", err);
+    return false;
+  }
+}
