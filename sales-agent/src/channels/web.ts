@@ -11,12 +11,19 @@ import {
   SUGGESTED_PAGE_PATHS,
   type SuggestedPage,
 } from "../agent/prompts.js";
-import { notifyOwnerLead } from "../integrations/ownerNotify.js";
+import {
+  notifyOwnerLead,
+  notifyOwnerOpsAlert,
+} from "../integrations/ownerNotify.js";
 import {
   sendCorpMail,
   smtpConfigured,
   smtpStatus,
 } from "../integrations/smtpMail.js";
+
+/** In-process ops-alert dedupe: fingerprint → last sent ms. */
+const opsAlertDedupe = new Map<string, number>();
+const OPS_ALERT_DEDUPE_MS = 15 * 60 * 1000;
 
 type BookingInbound = {
   order_id?: string;
@@ -145,6 +152,7 @@ export function createWebApp() {
       siteBaseUrl: config.siteBaseUrl,
       hasSiteSecret: Boolean(config.siteWebhookSecret),
       escalationsApi,
+      opsAlert: true,
       mockCalendar: config.allowMock,
       smtp: smtpStatus(),
     });
@@ -155,6 +163,68 @@ export function createWebApp() {
    * Body: { to, subject, text, confirm: "SEND" [, replyTo ] }
    * Does not touch HornyFans — SMTP_* must be set on this Render service.
    */
+
+  /** Site ops alerts → owner Telegram (same bot/chat as leads). */
+  app.post("/webhooks/ops-alert", async (c) => {
+    const secret = c.req.header("x-webhook-secret") || c.req.query("secret");
+    if (!secret || secret !== config.webhookSecret) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+
+    let body: {
+      severity?: string;
+      code?: string;
+      fingerprint?: string;
+      count?: number;
+      text?: string;
+      meta?: Record<string, unknown>;
+    } = {};
+    try {
+      body = (await c.req.json()) as typeof body;
+    } catch {
+      return c.json({ error: "invalid json" }, 400);
+    }
+
+    const textBody = (body.text || "").trim();
+    if (!textBody) {
+      return c.json({ error: "text required" }, 400);
+    }
+    const code = (body.code || "ops.unknown").trim() || "ops.unknown";
+    const severity = (body.severity || "P1").trim().toUpperCase() || "P1";
+    const fingerprint = (body.fingerprint || `${severity}:${code}`).trim();
+
+    const now = Date.now();
+    const last = opsAlertDedupe.get(fingerprint) || 0;
+    if (last && now - last < OPS_ALERT_DEDUPE_MS) {
+      return c.json({
+        ok: true,
+        deduped: true,
+        fingerprint,
+        cooldown_ms: OPS_ALERT_DEDUPE_MS - (now - last),
+      });
+    }
+    // Prune map occasionally
+    if (opsAlertDedupe.size > 500) {
+      for (const [k, ts] of opsAlertDedupe) {
+        if (now - ts > OPS_ALERT_DEDUPE_MS) opsAlertDedupe.delete(k);
+      }
+    }
+
+    const sent = await notifyOwnerOpsAlert({
+      severity,
+      code,
+      fingerprint,
+      count: body.count,
+      text: textBody,
+      meta: body.meta,
+    });
+    if (!sent) {
+      return c.json({ ok: false, error: "telegram_send_failed" }, 502);
+    }
+    opsAlertDedupe.set(fingerprint, now);
+    return c.json({ ok: true, deduped: false, fingerprint });
+  });
+
   app.post("/webhooks/corp-mail", async (c) => {
     const secret = c.req.header("x-webhook-secret") || c.req.query("secret");
     if (!secret || secret !== config.webhookSecret) {

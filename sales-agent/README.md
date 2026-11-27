@@ -116,6 +116,26 @@ Redeploy the site. Form proxy must `POST {SALES_AGENT_URL}/webhooks/site-lead` w
 - Service **sleeps** after ~15 min idle; Telegram/site HTTPS traffic wakes it (cold start).
 - SQLite under `data/` is **ephemeral** on Free — sessions may reset on redeploy; deals still go to Calendar + your Telegram notify.
 
+## Ops alerts (site → Telegram owner)
+
+The website posts structured ops alerts here; the agent forwards them to `OWNER_TELEGRAM_CHAT_ID` (same bot as booking leads). Auth: `x-webhook-secret` = `WEBHOOK_SECRET`.
+
+```bash
+curl -X POST "$PUBLIC_BASE_URL/webhooks/ops-alert" \
+  -H "Content-Type: application/json" \
+  -H "x-webhook-secret: YOUR_WEBHOOK_SECRET" \
+  -d '{
+    "severity": "P1",
+    "code": "userpath.pay.fulfill_fail",
+    "fingerprint": "fulfill_fail:nowpayments",
+    "count": 1,
+    "text": "Оплата: fulfill не прошёл (nowpayments).",
+    "meta": { "request_id": "abc", "path": "/webhooks/nowpayments" }
+  }'
+```
+
+Response: `{ ok, deduped, fingerprint }`. Same fingerprint is silenced for ~15 minutes in-process. Site env: `SALES_AGENT_URL` + `SALES_AGENT_WEBHOOK_SECRET` (no Slack required).
+
 ## Website form (curl)
 
 ```bash

@@ -29,6 +29,7 @@ async function main() {
   serve({ fetch: app.fetch, port: config.port }, async (info) => {
     console.log(`[http] listening on port ${info.port}`);
     console.log(`[http] POST /webhooks/site-lead (header x-webhook-secret)`);
+    console.log(`[http] POST /webhooks/ops-alert (header x-webhook-secret)`);
     console.log(`[http] PUBLIC_BASE_URL=${config.publicBaseUrl}`);
     startEscalationPoller();
 
