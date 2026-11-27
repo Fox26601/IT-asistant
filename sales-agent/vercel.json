@@ -21,6 +21,10 @@
     {
       "path": "/cron/escalations",
       "schedule": "*/3 * * * *"
+    },
+    {
+      "path": "/cron/telegram-webhook",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

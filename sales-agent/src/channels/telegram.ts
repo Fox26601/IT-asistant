@@ -19,25 +19,42 @@ export function createClientBot(): Bot {
 
   /** Owner: DM /owner → saves your user chat.id for ops/lead notifies. */
   bot.command("owner", async (ctx) => {
-    const chatId = ctx.chat?.id;
-    const fromId = ctx.from?.id;
-    if (!chatId || ctx.chat.type !== "private" || !fromId) {
-      await ctx.reply("Run /owner in a private chat with this bot.");
-      return;
+    try {
+      const chatId = ctx.chat?.id;
+      const fromId = ctx.from?.id;
+      if (!chatId || ctx.chat.type !== "private" || !fromId) {
+        await ctx.reply("Run /owner in a private chat with this bot.");
+        return;
+      }
+      const botId = await resolveBotId();
+      if (botId && String(fromId) === botId) {
+        await ctx.reply(
+          "This chat is the bot itself — use your personal Telegram account."
+        );
+        return;
+      }
+      try {
+        await setOwnerChatOverride(String(chatId));
+      } catch (err) {
+        console.error("[owner] persist failed", err);
+      }
+      await ctx.reply(
+        [
+          "Owner chat registered for notifies.",
+          `chat_id=${chatId}`,
+          "Also set OWNER_TELEGRAM_CHAT_ID on Vercel (Project → Settings → Environment Variables) so it survives redeploy.",
+        ].join("\n")
+      );
+    } catch (err) {
+      console.error("[owner] handler failed", err);
+      try {
+        await ctx.reply(
+          "Could not finish /owner. Try again in a moment, or check Vercel logs."
+        );
+      } catch {
+        /* ignore */
+      }
     }
-    const botId = await resolveBotId();
-    if (botId && String(fromId) === botId) {
-      await ctx.reply("This chat is the bot itself — use your personal Telegram account.");
-      return;
-    }
-    await setOwnerChatOverride(String(chatId));
-    await ctx.reply(
-      [
-        "Owner chat registered for notifies.",
-        `chat_id=${chatId}`,
-        "Also set OWNER_TELEGRAM_CHAT_ID on Vercel (Project → Settings → Environment Variables) so it survives redeploy.",
-      ].join("\n")
-    );
   });
 
   bot.command("start", async (ctx) => {
@@ -124,7 +141,7 @@ export function createClientBot(): Bot {
   return bot;
 }
 
-/** Mount Telegram updates on the HTTP app (Render / production). */
+/** Mount Telegram updates on the HTTP app (Vercel / production). */
 export function mountTelegramWebhook(app: Hono, bot: Bot): string {
   const path = telegramWebhookPath();
   const handleUpdate = webhookCallback(bot, "std/http");
@@ -139,13 +156,32 @@ export function mountTelegramWebhook(app: Hono, bot: Bot): string {
   return path;
 }
 
-export async function registerTelegramWebhook(bot: Bot): Promise<void> {
+/**
+ * Point Telegram at PUBLIC_BASE_URL webhook. Idempotent.
+ * Does NOT drop pending updates (avoids losing /owner while re-pointing).
+ */
+export async function registerTelegramWebhook(
+  bot: Bot,
+  opts: { dropPending?: boolean } = {}
+): Promise<{ url: string; changed: boolean }> {
   const url = telegramWebhookUrl();
-  await bot.api.setWebhook(url, {
-    drop_pending_updates: true,
-    secret_token: undefined,
-  });
-  console.log(`[telegram] webhook set → ${url}`);
+  let changed = true;
+  try {
+    const info = await bot.api.getWebhookInfo();
+    if (info.url === url) changed = false;
+  } catch {
+    /* still setWebhook */
+  }
+  if (changed) {
+    await bot.api.setWebhook(url, {
+      drop_pending_updates: Boolean(opts.dropPending),
+      secret_token: undefined,
+    });
+    console.log(`[telegram] webhook set → ${url}`);
+  } else {
+    console.log(`[telegram] webhook already → ${url}`);
+  }
+  return { url, changed };
 }
 
 export async function clearTelegramWebhook(bot: Bot): Promise<void> {

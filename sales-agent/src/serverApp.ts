@@ -49,6 +49,25 @@ export function createServerApp(): Hono {
     telegramMounted = true;
   }
 
+  /** Re-assert webhook URL (guards against a legacy host stealing setWebhook). */
+  app.get("/cron/telegram-webhook", async (c) => {
+    if (!authorizeCron(c)) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+    try {
+      const result = await registerTelegramWebhook(bot);
+      return c.json({ ok: true, ...result });
+    } catch (err) {
+      return c.json(
+        {
+          error: "set_webhook_failed",
+          detail: err instanceof Error ? err.message : String(err),
+        },
+        502
+      );
+    }
+  });
+
   app.get("/cron/escalations", async (c) => {
     if (!authorizeCron(c)) {
       return c.json({ error: "unauthorized" }, 401);
@@ -79,13 +98,19 @@ export function createServerApp(): Hono {
       );
     }
     try {
-      await registerTelegramWebhook(bot);
+      const result = await registerTelegramWebhook(bot);
       const me = await bot.api.getMe();
+      const info = await bot.api.getWebhookInfo();
       return c.json({
         ok: true,
         bot: me.username,
         path: telegramWebhookPath(),
         publicBaseUrl: config.publicBaseUrl,
+        webhookUrl: result.url,
+        changed: result.changed,
+        telegramReportsUrl: info.url || null,
+        pendingUpdateCount: info.pending_update_count,
+        lastError: info.last_error_message || null,
       });
     } catch (err) {
       console.error("[setup-telegram]", err);
@@ -109,12 +134,15 @@ export function ensureTelegramWebhookRegistered(): void {
   if (webhookRegisterPromise) return;
   webhookRegisterPromise = (async () => {
     try {
-      const bot = createClientBot();
-      await registerTelegramWebhook(bot);
+      await registerTelegramWebhook(botForLazyRegister());
     } catch (err) {
       console.error("[telegram] lazy setWebhook failed", err);
     }
   })();
+}
+
+function botForLazyRegister(): ReturnType<typeof createClientBot> {
+  return createClientBot();
 }
 
 export { clearTelegramWebhook, createClientBot, registerTelegramWebhook };

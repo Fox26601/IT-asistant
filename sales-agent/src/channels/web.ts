@@ -159,6 +159,10 @@ export function createWebApp() {
       smtp: mailStatus(),
       runtime: config.isVercel ? "vercel" : "node",
       database: Boolean(config.databaseUrl),
+      telegramWebhook: {
+        expectedUrl: `${config.publicBaseUrl}/telegram/webhook/…`,
+        publicBaseUrl: config.publicBaseUrl,
+      },
     });
   });
 
