@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "auth:google": "tsx src/auth-google.ts",
+    "mail:send": "tsx scripts/send-corp-mail.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
@@ -19,10 +20,12 @@
     "googleapis": "^148.0.0",
     "grammy": "^1.35.0",
     "hono": "^4.7.0",
+    "nodemailer": "^10.6.1",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",
+    "@types/nodemailer": "^8.0.2",
     "tsx": "^4.19.0",
     "typescript": "^5.8.0"
   }

@@ -1,0 +1,45 @@
+Subject: Live Subscriptions / preapproved payments blocked — Kiniks Fox (symbolicpleasures)
+
+Hello PayPal Merchant / Technical Support,
+
+We need help enabling Live Subscriptions / billing agreements for our Live business account.
+
+Merchant / app
+- Business site: https://symbolicpleasures.com (HornyFans Live / Symbolic Pleasures)
+- PayPal Live REST app name: Kiniks Fox
+- Product needed: Subscriptions (billing agreements / preapproved payments)
+- Industry note: adult content merchant (MCC / restricted category may apply) — please confirm Live recurring / preapproved payments are allowed for this account
+
+What works
+- Our server successfully creates a Live subscription via the Subscriptions API and receives a subscription id + approve URL.
+- One-time PayPal Checkout flows are not the issue for this ticket.
+
+What fails (buyer-facing)
+- After redirect to PayPal, the buyer sees:
+  "Sorry, we weren't able to set up preapproved payments at this time"
+- The buyer never completes approval (no return to our success URL; no subscription activate webhook for this attempt).
+
+Evidence (Render app logs, UTC)
+- Timestamp (UTC): 2026-11-27T08:44:36.739Z
+- Local (Asia/Jerusalem, UTC+2): 2026-11-27 10:44:36
+- Log: paypal: create subscription ok plan=P-9KH0614625154461TNMEIV3A order=pprec-24e1d691-6ada-4262-95b4-f8de8dd10916 sub=I-KBJCKHMLL45E
+- Companion HTTP: POST /pay/subscribe/paypal → 200 (same second)
+- After that: no /pay/success, no /pay/cancelled, no /webhooks/paypal for this buyer session
+
+Identifiers
+- Live subscription id: I-KBJCKHMLL45E
+- Live plan id: P-9KH0614625154461TNMEIV3A
+- Internal order / link id: pprec-24e1d691-6ada-4262-95b4-f8de8dd10916
+
+Request
+1. Please enable or unblock Live Subscriptions / billing agreements / preapproved payments for this merchant account and Live app “Kiniks Fox”.
+2. If adult / restricted MCC requires a separate product approval, please start that process and tell us what documents or dashboard steps you need.
+3. Confirm whether plan P-9KH0614625154461TNMEIV3A is correctly linked to our Live app and ACTIVE for buyer approval.
+4. Advise any account-level restriction that would allow create-subscription API success but block the buyer approve / preapproved UI.
+
+Reply to this corporate address. We can provide additional Live API request/response IDs or Dashboard screenshots on request.
+
+Thank you,
+Kiniks / Symbolic Pleasures
+kiniks@symbolicpleasures.com
+https://symbolicpleasures.com

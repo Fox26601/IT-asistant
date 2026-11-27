@@ -68,6 +68,15 @@ export const config = {
   tz: required("TZ", "Europe/Kyiv"),
   allowMock: required("ALLOW_MOCK_INTEGRATIONS", "true") === "true",
   dataDir: resolve(import.meta.dirname, "../data"),
+  /** Corp outbound mail (same SMTP_* names as site password-reset / support intake). Optional until set. */
+  smtpHost: required("SMTP_HOST"),
+  smtpPort: Number(required("SMTP_PORT", "587")) || 587,
+  smtpUser: required("SMTP_USER"),
+  smtpPassword: required("SMTP_PASSWORD"),
+  smtpFrom: required("SMTP_FROM"),
+  smtpFromName: required("SMTP_FROM_NAME", "Symbolic Pleasures Support"),
+  /** auto | starttls | ssl | plain — empty = auto (465→ssl, else starttls) */
+  smtpTlsMode: required("SMTP_TLS_MODE", "auto").toLowerCase(),
 };
 
 /** Production / Render: public HTTPS URL → Telegram webhook. Localhost → long polling. */

@@ -12,6 +12,11 @@ import {
   type SuggestedPage,
 } from "../agent/prompts.js";
 import { notifyOwnerLead } from "../integrations/ownerNotify.js";
+import {
+  sendCorpMail,
+  smtpConfigured,
+  smtpStatus,
+} from "../integrations/smtpMail.js";
 
 type BookingInbound = {
   order_id?: string;
@@ -141,7 +146,78 @@ export function createWebApp() {
       hasSiteSecret: Boolean(config.siteWebhookSecret),
       escalationsApi,
       mockCalendar: config.allowMock,
+      smtp: smtpStatus(),
     });
+  });
+
+  /**
+   * One-off corp outbound mail (PayPal Support, ops). Auth: x-webhook-secret.
+   * Body: { to, subject, text, confirm: "SEND" [, replyTo ] }
+   * Does not touch HornyFans — SMTP_* must be set on this Render service.
+   */
+  app.post("/webhooks/corp-mail", async (c) => {
+    const secret = c.req.header("x-webhook-secret") || c.req.query("secret");
+    if (!secret || secret !== config.webhookSecret) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+    if (!smtpConfigured()) {
+      return c.json(
+        {
+          error: "smtp_not_configured",
+          detail:
+            "Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM on IT-asistant (same corp mailbox as site).",
+          smtp: smtpStatus(),
+        },
+        503
+      );
+    }
+
+    let body: {
+      to?: string;
+      subject?: string;
+      text?: string;
+      replyTo?: string;
+      confirm?: string;
+    } = {};
+    try {
+      body = (await c.req.json()) as typeof body;
+    } catch {
+      return c.json({ error: "invalid json" }, 400);
+    }
+    if (body.confirm !== "SEND") {
+      return c.json(
+        {
+          error: "confirm_required",
+          detail: 'Pass confirm: "SEND" to actually send.',
+        },
+        400
+      );
+    }
+    if (!body.to?.trim() || !body.subject?.trim() || !body.text?.trim()) {
+      return c.json({ error: "to, subject, and text required" }, 400);
+    }
+
+    try {
+      const result = await sendCorpMail({
+        to: body.to,
+        subject: body.subject,
+        text: body.text,
+        replyTo: body.replyTo,
+      });
+      console.log(
+        `[corp-mail] sent to=${body.to.trim()} subject=${body.subject.trim().slice(0, 80)} id=${result.messageId}`
+      );
+      return c.json({ ok: true, messageId: result.messageId });
+    } catch (err) {
+      console.error("[corp-mail]", err);
+      return c.json(
+        {
+          error: "send_failed",
+          detail: err instanceof Error ? err.message : String(err),
+        },
+        502
+      );
+    }
   });
 
   app.post("/webhooks/site-lead", async (c) => {
