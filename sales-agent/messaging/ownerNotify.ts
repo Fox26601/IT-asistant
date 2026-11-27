@@ -1,6 +1,6 @@
 import { Bot } from "grammy";
-import { config } from "../config.js";
-import type { DealSlots } from "../db/sessions.js";
+import { config } from "../config/env.js";
+import type { DealSlots } from "../sales-manager/db/sessions.js";
 import { resolveOwnerChatId } from "./ownerChat.js";
 
 let bot: Bot | null = null;

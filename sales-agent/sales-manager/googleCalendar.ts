@@ -1,6 +1,6 @@
 import { google } from "googleapis";
-import { config } from "../config.js";
-import type { DealSlots } from "../db/sessions.js";
+import { config } from "../config/env.js";
+import type { DealSlots } from "./db/sessions.js";
 
 export type CreatedEvent = {
   id: string;

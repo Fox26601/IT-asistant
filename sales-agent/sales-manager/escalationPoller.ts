@@ -1,5 +1,5 @@
-import { config } from "../config.js";
-import { getGemini } from "../llm/gemini.js";
+import { config } from "../config/env.js";
+import { getGemini } from "../shared/llm/gemini.js";
 import {
   listPendingEscalationIds,
   listPendingEscalations,
@@ -8,8 +8,8 @@ import {
   markDismissed,
   markFailed,
   sessionsForEscalationId,
-} from "../db/escalations.js";
-import { getSessionById, saveSession } from "../db/sessions.js";
+} from "./db/escalations.js";
+import { getSessionById, saveSession } from "./db/sessions.js";
 import {
   checkEscalations,
   type EscalationStatusRow,
@@ -17,7 +17,7 @@ import {
 import {
   notifyOwnerEscalationAnswer,
   sendTelegramMessage,
-} from "./ownerNotify.js";
+} from "../messaging/ownerNotify.js";
 
 const POLL_MS = 180_000;
 

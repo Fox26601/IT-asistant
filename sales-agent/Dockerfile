@@ -6,7 +6,14 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY tsconfig.json ./
-COPY src ./src
+COPY api ./api
+COPY bot ./bot
+COPY config ./config
+COPY mail ./mail
+COPY messaging ./messaging
+COPY sales-manager ./sales-manager
+COPY shared ./shared
+COPY scripts ./scripts
 
 ENV NODE_ENV=production
 ENV PORT=3847

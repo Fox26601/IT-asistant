@@ -9,12 +9,12 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { config } from "../src/config.js";
+import { config } from "../config/env.js";
 import {
   sendCorpMail,
   mailConfigured,
   mailStatus,
-} from "../src/integrations/corpMail.js";
+} from "../mail/corpMail.js";
 
 function argValue(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);

@@ -11,7 +11,7 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { google } from "googleapis";
-import { config } from "./config.js";
+import { config } from "../config/env.js";
 
 async function main() {
   if (!config.googleClientId || !config.googleClientSecret) {

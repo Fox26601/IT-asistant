@@ -3,23 +3,23 @@ import {
   assertRuntimeConfig,
   config,
   useTelegramWebhook,
-} from "./config.js";
+} from "../config/env.js";
 import {
   clearTelegramWebhook,
   createClientBot,
   createServerApp,
   registerTelegramWebhook,
-} from "./serverApp.js";
-import { startEscalationPoller } from "./integrations/escalationPoller.js";
-import { assertOwnerChatConfigured } from "./integrations/ownerChat.js";
-import { ensureSchema } from "./db/pg.js";
+} from "../shared/http/serverApp.js";
+import { startEscalationPoller } from "../sales-manager/escalationPoller.js";
+import { assertOwnerChatConfigured } from "../messaging/ownerChat.js";
+import { ensureSchema } from "../shared/db/pg.js";
 
 async function main() {
   assertRuntimeConfig();
 
   if (config.isVercel) {
     throw new Error(
-      "src/index.ts is the Node/Docker entry. On Vercel use api/index.ts (serverless)."
+      "bot/index.ts is the Node/Docker entry. On Vercel use api/index.ts (serverless)."
     );
   }
 

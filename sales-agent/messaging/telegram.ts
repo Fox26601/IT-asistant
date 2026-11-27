@@ -4,15 +4,21 @@ import {
   config,
   telegramWebhookPath,
   telegramWebhookUrl,
-} from "../config.js";
-import { getOrCreateOpenSession, saveSession } from "../db/sessions.js";
-import { handleUserTurn } from "../agent/dialogue.js";
-import { describePhoto } from "../media/photo.js";
-import { transcribeAudio } from "../media/audio.js";
+} from "../config/env.js";
 import {
-  resolveBotId,
-  setOwnerChatOverride,
-} from "../integrations/ownerChat.js";
+  getOrCreateOpenSession,
+  saveSession,
+} from "../sales-manager/db/sessions.js";
+import { handleUserTurn } from "../sales-manager/agent/dialogue.js";
+import { describePhoto } from "../shared/media/photo.js";
+import { transcribeAudio } from "../shared/media/audio.js";
+import { resolveBotId, setOwnerChatOverride } from "./ownerChat.js";
+import { authorizeTelegramSecretToken } from "../shared/security/webhookAuth.js";
+import { redactSecrets } from "../shared/security/redact.js";
+
+function safeWebhookLogUrl(): string {
+  return `${config.publicBaseUrl}/telegram/webhook/…`;
+}
 
 export function createClientBot(): Bot {
   const bot = new Bot(config.telegramToken);
@@ -36,7 +42,7 @@ export function createClientBot(): Bot {
       try {
         await setOwnerChatOverride(String(chatId));
       } catch (err) {
-        console.error("[owner] persist failed", err);
+        console.error("[owner] persist failed", redactSecrets(err));
       }
       await ctx.reply(
         [
@@ -46,7 +52,7 @@ export function createClientBot(): Bot {
         ].join("\n")
       );
     } catch (err) {
-      console.error("[owner] handler failed", err);
+      console.error("[owner] handler failed", redactSecrets(err));
       try {
         await ctx.reply(
           "Could not finish /owner. Try again in a moment, or check Vercel logs."
@@ -67,7 +73,6 @@ export function createClientBot(): Bot {
     });
     const payload = ctx.match?.toString().trim();
     if (payload?.startsWith("web_")) {
-      // Deep-link from website: web_<sessionId>
       session.slots.notes =
         `${session.slots.notes || ""}\nLinked from web lead ${payload}`.trim();
       await saveSession(session);
@@ -104,6 +109,7 @@ export function createClientBot(): Bot {
       await ctx.reply("Couldn’t download that photo — please try again.");
       return;
     }
+    // Token is required by Telegram file API; never log this URL.
     const url = `https://api.telegram.org/file/bot${config.telegramToken}/${file.file_path}`;
     await ctx.reply("Looking at your photo…");
     const description = await describePhoto({ url });
@@ -135,21 +141,32 @@ export function createClientBot(): Bot {
   bot.on("message:audio", handleAudio);
 
   bot.catch((err) => {
-    console.error("[telegram]", err);
+    console.error("[telegram]", redactSecrets(err));
   });
 
   return bot;
 }
 
-/** Mount Telegram updates on the HTTP app (Vercel / production). */
+/**
+ * Mount Telegram updates (path secret + X-Telegram-Bot-Api-Secret-Token).
+ * Path: /telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>
+ */
 export function mountTelegramWebhook(app: Hono, bot: Bot): string {
   const path = telegramWebhookPath();
   const handleUpdate = webhookCallback(bot, "std/http");
   app.post(path, async (c) => {
+    // Path already includes TELEGRAM_WEBHOOK_SECRET.
+    // When Telegram sends X-Telegram-Bot-Api-Secret-Token (after setWebhook),
+    // require it to match — reject spoofed headers without blocking the brief
+    // window before secret_token is registered on a fresh deploy.
+    const header = c.req.header("x-telegram-bot-api-secret-token")?.trim();
+    if (header && !authorizeTelegramSecretToken(c)) {
+      return c.text("unauthorized", 401);
+    }
     try {
       return await handleUpdate(c.req.raw);
     } catch (err) {
-      console.error("[telegram webhook]", err);
+      console.error("[telegram webhook]", redactSecrets(err));
       return c.text("webhook error", 500);
     }
   });
@@ -158,6 +175,7 @@ export function mountTelegramWebhook(app: Hono, bot: Bot): string {
 
 /**
  * Point Telegram at PUBLIC_BASE_URL webhook. Idempotent.
+ * Sets secret_token so Telegram sends X-Telegram-Bot-Api-Secret-Token.
  * Does NOT drop pending updates (avoids losing /owner while re-pointing).
  */
 export async function registerTelegramWebhook(
@@ -172,15 +190,14 @@ export async function registerTelegramWebhook(
   } catch {
     /* still setWebhook */
   }
-  if (changed) {
-    await bot.api.setWebhook(url, {
-      drop_pending_updates: Boolean(opts.dropPending),
-      secret_token: undefined,
-    });
-    console.log(`[telegram] webhook set → ${url}`);
-  } else {
-    console.log(`[telegram] webhook already → ${url}`);
-  }
+  // Always setWebhook so secret_token stays applied after deploys.
+  await bot.api.setWebhook(url, {
+    drop_pending_updates: Boolean(opts.dropPending),
+    secret_token: config.telegramWebhookSecret,
+  });
+  console.log(
+    `[telegram] webhook ${changed ? "set" : "refreshed"} → ${safeWebhookLogUrl()}`
+  );
   return { url, changed };
 }
 
@@ -201,7 +218,7 @@ async function processText(ctx: Context, text: string) {
     const result = await handleUserTurn(session, text);
     await ctx.reply(result.reply);
   } catch (err) {
-    console.error("[telegram turn]", err);
+    console.error("[telegram turn]", redactSecrets(err));
     await ctx.reply(
       "Something went wrong on my side. Please send that again in a moment."
     );

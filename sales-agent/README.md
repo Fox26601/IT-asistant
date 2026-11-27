@@ -4,6 +4,18 @@ Booking assistant for **symbolicpleasures.com**: qualifies clients in Telegram (
 
 WhatsApp / Instagram are **not** included (Meta Business + adult-commerce policy limits).
 
+## Layout (product domains)
+
+See [`docs/STRUCTURE.md`](docs/STRUCTURE.md). Vercel root stays **`sales-agent`**; route paths are unchanged.
+
+| Folder | Domain |
+|--------|--------|
+| `sales-manager/` | Dialogue, sessions, escalations, site API, calendar |
+| `messaging/` | Telegram bot + owner / ops notifies |
+| `mail/` | Corp outbound mail (no `SMTP_FROM_NAME`) |
+| `api/` | Vercel entry — do not move |
+| `config/` / `shared/` / `bot/` | Env, HTTP/security, Node entry |
+
 ## Setup (local)
 
 ```bash
@@ -17,7 +29,7 @@ npm install
 1. [@BotFather](https://t.me/BotFather) → `/newbot` → `TELEGRAM_BOT_TOKEN`
 2. `TELEGRAM_BOT_USERNAME` (without `@`)
 3. Message bot in **private** chat: `/owner` → bot replies with your user `chat_id`. Put that value in Vercel `OWNER_TELEGRAM_CHAT_ID` (must **not** be the bot’s own id — that causes 403 “bot can't send messages to the bot”). `/start` alone is for buyers.
-4. Set `TELEGRAM_WEBHOOK_SECRET` to a long random string (used in webhook path)
+4. Set `TELEGRAM_WEBHOOK_SECRET` to a long random string (webhook **path** + Telegram `secret_token` header)
 
 ### 2) Gemini
 
@@ -69,7 +81,7 @@ npm run start
 
 ## Deploy on Vercel (primary)
 
-Repo: GitHub `Fox26601/IT-asistant`. Root directory: **`sales-agent`** ([`vercel.json`](vercel.json) + [`api/index.ts`](api/index.ts)).
+Repo: GitHub `Fox26601/IT-asistant` (**public**). Root directory: **`sales-agent`** ([`vercel.json`](vercel.json) + [`api/index.ts`](api/index.ts)). Secrets live only in Vercel env — never in git.
 
 1. Vercel → **Add New Project** → import `Fox26601/IT-asistant`
 2. **Root Directory:** `sales-agent` · Node **22.x** · Framework: Other
@@ -87,7 +99,7 @@ Repo: GitHub `Fox26601/IT-asistant`. Root directory: **`sales-agent`** ([`vercel
 | `WEBHOOK_SECRET` | same as site `SALES_AGENT_WEBHOOK_SECRET` |
 | `SITE_BASE_URL` | `https://symbolicpleasures.com` |
 | `SITE_WEBHOOK_SECRET` | same as `WEBHOOK_SECRET` if shared |
-| `PUBLIC_BASE_URL` | `https://<project>.vercel.app` (no trailing slash) |
+| `PUBLIC_BASE_URL` | `https://<project>.vercel.app` or custom host — **HTTPS**, **no trailing slash** |
 | `ALLOW_MOCK_INTEGRATIONS` | `true` until Calendar OAuth |
 | `RESEND_API_KEY` | from [resend.com](https://resend.com) (preferred mail) |
 | `MAIL_FROM` | bare `kiniks@symbolicpleasures.com` (or Resend onboarding from) |
@@ -123,7 +135,7 @@ Redeploy the site. Form proxy: `POST {SALES_AGENT_URL}/webhooks/site-lead` + `x-
 
 ## Ops alerts (site → Telegram owner)
 
-The website posts structured ops alerts here; the agent forwards them to `OWNER_TELEGRAM_CHAT_ID` (same bot as booking leads). Auth: `x-webhook-secret` = `WEBHOOK_SECRET`.
+The website posts structured ops alerts here; the agent forwards them to `OWNER_TELEGRAM_CHAT_ID` (same bot as booking leads). Auth: header `x-webhook-secret` = `WEBHOOK_SECRET` (query `?secret=` is rejected).
 
 ```bash
 curl -X POST "$PUBLIC_BASE_URL/webhooks/ops-alert" \

@@ -2,7 +2,7 @@ import { handle } from "hono/vercel";
 import {
   createServerApp,
   ensureTelegramWebhookRegistered,
-} from "../src/serverApp.js";
+} from "../shared/http/serverApp.js";
 
 export const config = {
   runtime: "nodejs",
