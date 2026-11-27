@@ -171,8 +171,7 @@ Same `SMTP_*` names as the site password-reset mailbox (`kiniks@symbolicpleasure
 | `SMTP_PORT` | `587` (STARTTLS) or `465` (SSL) |
 | `SMTP_USER` | full corp mailbox |
 | `SMTP_PASSWORD` | Google App Password |
-| `SMTP_FROM` | same as `SMTP_USER` for Gmail |
-| `SMTP_FROM_NAME` | optional display name |
+| `SMTP_FROM` | same as `SMTP_USER` for Gmail — bare address only, **no** display-name / `SMTP_FROM_NAME` |
 | `SMTP_TLS_MODE` | optional: `auto` \| `starttls` \| `ssl` \| `plain` |
 
 Send paths (after SMTP is set):

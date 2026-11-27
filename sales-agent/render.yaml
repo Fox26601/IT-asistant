@@ -47,5 +47,3 @@ services:
         sync: false
       - key: SMTP_FROM
         sync: false
-      - key: SMTP_FROM_NAME
-        value: Symbolic Pleasures Support

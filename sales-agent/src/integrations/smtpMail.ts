@@ -24,7 +24,6 @@ export function smtpStatus() {
     port: config.smtpPort,
     user: config.smtpUser || null,
     from: config.smtpFrom || null,
-    fromName: config.smtpFromName || null,
     tlsMode: config.smtpTlsMode,
   };
 }
@@ -62,13 +61,8 @@ export async function sendCorpMail(payload: CorpMailPayload): Promise<{
     },
   });
 
-  const from =
-    config.smtpFromName.trim().length > 0
-      ? `"${config.smtpFromName.replace(/"/g, "")}" <${config.smtpFrom}>`
-      : config.smtpFrom;
-
   const info = await transporter.sendMail({
-    from,
+    from: config.smtpFrom,
     to,
     subject,
     text,

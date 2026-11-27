@@ -73,8 +73,8 @@ export const config = {
   smtpPort: Number(required("SMTP_PORT", "587")) || 587,
   smtpUser: required("SMTP_USER"),
   smtpPassword: required("SMTP_PASSWORD"),
+  /** Bare address only (e.g. kiniks@…); no display-name / SMTP_FROM_NAME. */
   smtpFrom: required("SMTP_FROM"),
-  smtpFromName: required("SMTP_FROM_NAME", "Symbolic Pleasures Support"),
   /** auto | starttls | ssl | plain — empty = auto (465→ssl, else starttls) */
   smtpTlsMode: required("SMTP_TLS_MODE", "auto").toLowerCase(),
 };
