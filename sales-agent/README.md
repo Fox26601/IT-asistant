@@ -16,7 +16,7 @@ npm install
 
 1. [@BotFather](https://t.me/BotFather) → `/newbot` → `TELEGRAM_BOT_TOKEN`
 2. `TELEGRAM_BOT_USERNAME` (without `@`)
-3. Message bot `/start`, then `https://api.telegram.org/bot<TOKEN>/getUpdates` → your `chat.id` → `OWNER_TELEGRAM_CHAT_ID`
+3. Message bot in **private** chat: `/owner` → bot replies with your user `chat_id`. Put that value in Render `OWNER_TELEGRAM_CHAT_ID` (must **not** be the bot’s own id — that causes 403 “bot can't send messages to the bot”). `/start` alone is for buyers.
 4. Set `TELEGRAM_WEBHOOK_SECRET` to a long random string (used on Render)
 
 ### 2) Gemini
@@ -183,7 +183,9 @@ Client commands: `/start`, `/status`.
 
 Ops / PayPal Support mail goes **from this service**, not from HornyFans app code.
 
-Same `SMTP_*` names as the site password-reset mailbox (`kiniks@symbolicpleasures.com` on Gmail). Copy those env vars onto the **IT-asistant** Render service (they are **not** present there until you add them).
+Same `SMTP_*` names as the site password-reset mailbox (`kiniks@symbolicpleasures.com` on Gmail). Copy those env vars onto the **IT-asistant** Render service.
+
+**Render Free blocks outbound SMTP** (ports 25/465/587). HornyFans is on **Starter** so site mail works; IT-asistant on **Free** times out to `smtp.gmail.com` even with a valid App Password. Upgrade IT-asistant to **Starter** (Dashboard → service → plan) — same credentials then work. Prefer `SMTP_PORT=587` (STARTTLS) or `465` + `SMTP_TLS_MODE=ssl`.
 
 | Key | Notes |
 |---|---|

@@ -55,19 +55,41 @@ export async function sendCorpMail(payload: CorpMailPayload): Promise<{
     host: config.smtpHost,
     port: config.smtpPort,
     secure: useSecure(),
+    connectionTimeout: 20_000,
+    greetingTimeout: 20_000,
+    socketTimeout: 30_000,
     auth: {
       user: config.smtpUser,
       pass: config.smtpPassword,
     },
   });
 
-  const info = await transporter.sendMail({
-    from: config.smtpFrom,
-    to,
-    subject,
-    text,
-    replyTo: payload.replyTo?.trim() || config.smtpFrom,
-  });
-
-  return { messageId: String(info.messageId || "") };
+  try {
+    const info = await transporter.sendMail({
+      from: config.smtpFrom,
+      to,
+      subject,
+      text,
+      replyTo: payload.replyTo?.trim() || config.smtpFrom,
+    });
+    return { messageId: String(info.messageId || "") };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code?: string }).code || "")
+        : "";
+    if (
+      code === "ETIMEDOUT" ||
+      /timeout|ETIMEDOUT|ECONNREFUSED/i.test(msg)
+    ) {
+      throw new Error(
+        `SMTP connect failed (${config.smtpHost}:${config.smtpPort}, ${code || msg}). ` +
+          `On Render Free, outbound SMTP (25/465/587) is blocked — upgrade IT-asistant to Starter ` +
+          `(HornyFans already uses Starter and the same Gmail App Password works). ` +
+          `Original: ${msg}`
+      );
+    }
+    throw err;
+  }
 }

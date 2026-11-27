@@ -1,6 +1,7 @@
 import { Bot } from "grammy";
 import { config } from "../config.js";
 import type { DealSlots } from "../db/sessions.js";
+import { resolveOwnerChatId } from "./ownerChat.js";
 
 let bot: Bot | null = null;
 
@@ -8,6 +9,29 @@ function getBot() {
   if (!config.telegramToken) return null;
   if (!bot) bot = new Bot(config.telegramToken);
   return bot;
+}
+
+async function sendOwner(text: string): Promise<"sent" | "logged" | "failed"> {
+  const chatId = await resolveOwnerChatId();
+  if (!chatId || !config.telegramToken) {
+    console.warn(
+      "[ownerNotify] OWNER chat missing/invalid (bot id?) — logging only; DM bot /owner"
+    );
+    console.log(text);
+    return "logged";
+  }
+  const b = getBot();
+  if (!b) {
+    console.log(text);
+    return "logged";
+  }
+  try {
+    await b.api.sendMessage(chatId, text);
+    return "sent";
+  } catch (err) {
+    console.error("[ownerNotify] sendMessage failed", err);
+    return "failed";
+  }
 }
 
 export async function notifyOwnerDeal(input: {
@@ -38,24 +62,7 @@ export async function notifyOwnerDeal(input: {
     .filter(Boolean)
     .join("\n");
 
-  if (!config.ownerChatId) {
-    console.warn("[ownerNotify] OWNER_TELEGRAM_CHAT_ID missing — logging only");
-    console.log(text);
-    return;
-  }
-
-  const b = getBot();
-  if (!b) {
-    console.warn("[ownerNotify] no bot token — logging only");
-    console.log(text);
-    return;
-  }
-
-  try {
-    await b.api.sendMessage(config.ownerChatId, text);
-  } catch (err) {
-    console.error("[ownerNotify] sendMessage failed", err);
-  }
+  await sendOwner(text);
 }
 
 export async function notifyOwnerLead(input: {
@@ -76,20 +83,7 @@ export async function notifyOwnerLead(input: {
     .filter(Boolean)
     .join("\n");
 
-  if (!config.ownerChatId || !config.telegramToken) {
-    console.log(text);
-    return;
-  }
-  const b = getBot();
-  if (!b) {
-    console.log(text);
-    return;
-  }
-  try {
-    await b.api.sendMessage(config.ownerChatId, text);
-  } catch (err) {
-    console.error("[ownerNotify] lead notify failed", err);
-  }
+  await sendOwner(text);
 }
 
 /** Send a message to a Telegram buyer chat id (externalUserId). */
@@ -131,20 +125,7 @@ export async function notifyOwnerEscalationAnswer(input: {
       : "Stored on session / owner-only (web or delivery failed).",
   ].join("\n");
 
-  if (!config.ownerChatId || !config.telegramToken) {
-    console.log(text);
-    return;
-  }
-  const b = getBot();
-  if (!b) {
-    console.log(text);
-    return;
-  }
-  try {
-    await b.api.sendMessage(config.ownerChatId, text);
-  } catch (err) {
-    console.error("[ownerNotify] escalation notify failed", err);
-  }
+  await sendOwner(text);
 }
 
 export type OpsAlertInput = {
@@ -187,21 +168,7 @@ export async function notifyOwnerOpsAlert(
   }
   const text = lines.filter(Boolean).join("\n").slice(0, 3500);
 
-  if (!config.ownerChatId || !config.telegramToken) {
-    console.warn("[ownerNotify] ops-alert — logging only (no owner chat/token)");
-    console.log(text);
-    return true;
-  }
-  const b = getBot();
-  if (!b) {
-    console.log(text);
-    return true;
-  }
-  try {
-    await b.api.sendMessage(config.ownerChatId, text);
-    return true;
-  } catch (err) {
-    console.error("[ownerNotify] ops-alert send failed", err);
-    return false;
-  }
+  const result = await sendOwner(text);
+  // Only true when Telegram accepted the message (not log-only fallback).
+  return result === "sent";
 }
