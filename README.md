@@ -6,7 +6,7 @@ Repo: https://github.com/Fox26601/IT-asistant
 
 | Path | What it is |
 |---|---|
-| [`sales-agent/`](sales-agent/) | Bot + HTTP webhooks, SQLite sessions, **Vercel** deploy (`vercel.json`, `api/`) |
+| [`sales-agent/`](sales-agent/) | Bot + HTTP webhooks, **Postgres** sessions (Neon), **Vercel** deploy (`vercel.json`, `api/`) |
 
 UA GovTech job outreach (CSV, letters, SMTP) moved to a separate repo (`ua-govtech-outreach`).
 

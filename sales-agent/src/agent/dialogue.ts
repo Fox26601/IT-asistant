@@ -316,7 +316,7 @@ export async function handleUserTurn(
       content: reply,
       at: new Date().toISOString(),
     });
-    saveSession(session);
+    await saveSession(session);
     return { reply, session, booked: true };
   }
 
@@ -371,7 +371,7 @@ export async function handleUserTurn(
 
         if (name === "update_slots") {
           session.slots = mergeSlots(session.slots, args as Partial<DealSlots>);
-          saveSession(session);
+          await saveSession(session);
           toolResult = {
             ok: true,
             slots: session.slots,
@@ -392,7 +392,7 @@ export async function handleUserTurn(
             });
             session.calendarEventId = event.id;
             session.status = "booked";
-            saveSession(session);
+            await saveSession(session);
             await notifyOwnerDeal({
               sessionId: session.id,
               channel: session.channel,
@@ -495,7 +495,7 @@ export async function handleUserTurn(
               const escalationId = extractEscalationId(created.data);
               const meta = extractEscalationCreateMeta(created.data);
               if (escalationId) {
-                trackEscalation({
+                await trackEscalation({
                   escalationId,
                   sessionId: session.id,
                   question,
@@ -513,7 +513,7 @@ export async function handleUserTurn(
           const provided = asStringArray(args.ids) || [];
           const ids = provided.length
             ? provided
-            : listPendingEscalationIdsForSession(session.id);
+            : await listPendingEscalationIdsForSession(session.id);
           if (!ids.length) {
             toolResult = {
               ok: true,
@@ -556,7 +556,7 @@ export async function handleUserTurn(
     content: finalReply,
     at: new Date().toISOString(),
   });
-  saveSession(session);
+  await saveSession(session);
 
   return { reply: finalReply, session, booked, handoff };
 }

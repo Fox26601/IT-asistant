@@ -158,6 +158,7 @@ export function createWebApp() {
       /** @deprecated use mail — kept during Vercel migrate */
       smtp: mailStatus(),
       runtime: config.isVercel ? "vercel" : "node",
+      database: Boolean(config.databaseUrl),
     });
   });
 
@@ -315,7 +316,7 @@ export function createWebApp() {
         body.contact || body.email || body.phone || "web-unknown";
       const externalUserId = `web:${contact}:${Date.now()}`;
       const slots = seedLeadSlots(body, contact);
-      const session = createSession("web", externalUserId, slots);
+      const session = await createSession("web", externalUserId, slots);
 
       const seedParts = [
         "New website lead started a booking conversation.",
@@ -364,7 +365,7 @@ export function createWebApp() {
       if (url) {
         session.slots.notes =
           `${session.slots.notes || ""}\nTelegram handoff: ${url}`.trim();
-        saveSession(session);
+        await saveSession(session);
       }
 
       const suggestedPages = deriveSuggestedPages({
@@ -417,7 +418,7 @@ export function createWebApp() {
     if (!body.sessionId || !body.message?.trim()) {
       return c.json({ error: "sessionId and message required" }, 400);
     }
-    const session = getSessionById(body.sessionId);
+    const session = await getSessionById(body.sessionId);
     if (!session) return c.json({ error: "session not found" }, 404);
     try {
       const turn = await handleUserTurn(session, body.message.trim());

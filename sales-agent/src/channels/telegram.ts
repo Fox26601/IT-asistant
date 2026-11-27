@@ -30,7 +30,7 @@ export function createClientBot(): Bot {
       await ctx.reply("This chat is the bot itself — use your personal Telegram account.");
       return;
     }
-    setOwnerChatOverride(String(chatId));
+    await setOwnerChatOverride(String(chatId));
     await ctx.reply(
       [
         "Owner chat registered for notifies.",
@@ -42,7 +42,7 @@ export function createClientBot(): Bot {
 
   bot.command("start", async (ctx) => {
     const userId = String(ctx.from?.id || ctx.chat?.id);
-    const session = getOrCreateOpenSession("telegram", userId, {
+    const session = await getOrCreateOpenSession("telegram", userId, {
       contact: ctx.from?.username ? `@${ctx.from.username}` : undefined,
       clientName: [ctx.from?.first_name, ctx.from?.last_name]
         .filter(Boolean)
@@ -53,7 +53,7 @@ export function createClientBot(): Bot {
       // Deep-link from website: web_<sessionId>
       session.slots.notes =
         `${session.slots.notes || ""}\nLinked from web lead ${payload}`.trim();
-      saveSession(session);
+      await saveSession(session);
     }
     const result = await handleUserTurn(
       session,
@@ -64,7 +64,7 @@ export function createClientBot(): Bot {
 
   bot.command("status", async (ctx) => {
     const userId = String(ctx.from?.id || "");
-    const session = getOrCreateOpenSession("telegram", userId);
+    const session = await getOrCreateOpenSession("telegram", userId);
     await ctx.reply(
       `Session ${session.id}\nStatus: ${session.status}\nSlots: ${JSON.stringify(
         session.slots,
@@ -155,7 +155,7 @@ export async function clearTelegramWebhook(bot: Bot): Promise<void> {
 
 async function processText(ctx: Context, text: string) {
   const userId = String(ctx.from?.id || ctx.chat?.id);
-  const session = getOrCreateOpenSession("telegram", userId, {
+  const session = await getOrCreateOpenSession("telegram", userId, {
     contact: ctx.from?.username ? `@${ctx.from.username}` : undefined,
   });
   try {

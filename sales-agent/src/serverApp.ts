@@ -13,23 +13,20 @@ import {
 } from "./channels/telegram.js";
 import { createWebApp } from "./channels/web.js";
 import { pollEscalationsOnce } from "./integrations/escalationPoller.js";
-import { assertOwnerChatConfigured } from "./integrations/ownerChat.js";
-import "./db/escalations.js";
 
 let telegramMounted = false;
 let webhookRegisterPromise: Promise<void> | null = null;
+let appSingleton: Hono | null = null;
 
 function authorizeCron(c: {
   req: { header: (name: string) => string | undefined };
 }): boolean {
   const secret = config.cronSecret;
   if (!secret) {
-    // Fallback: allow Vercel Cron header when CRON_SECRET unset (dev / first deploy).
     return c.req.header("x-vercel-cron") === "1";
   }
   const auth = c.req.header("authorization") || "";
   if (auth === `Bearer ${secret}`) return true;
-  // Vercel also sends x-vercel-cron on scheduled invocations.
   if (c.req.header("x-vercel-cron") === "1") return true;
   return false;
 }
@@ -37,10 +34,12 @@ function authorizeCron(c: {
 /**
  * Full HTTP app for Vercel serverless and for the Node server.
  * Telegram long-poll is NOT started here — only webhook routes.
+ * Keep construction sync and free of network I/O so /health stays fast.
  */
 export function createServerApp(): Hono {
+  if (appSingleton) return appSingleton;
+
   assertRuntimeConfig();
-  void assertOwnerChatConfigured();
 
   const app = createWebApp();
   const bot = createClientBot();
@@ -50,7 +49,6 @@ export function createServerApp(): Hono {
     telegramMounted = true;
   }
 
-  /** Vercel Cron: escalation follow-ups (replaces setInterval poller). */
   app.get("/cron/escalations", async (c) => {
     if (!authorizeCron(c)) {
       return c.json({ error: "unauthorized" }, 401);
@@ -66,10 +64,6 @@ export function createServerApp(): Hono {
     return c.json({ ok: true });
   });
 
-  /**
-   * One-shot: register Telegram webhook URL (after deploy / URL change).
-   * Auth: x-webhook-secret. Safe to call repeatedly.
-   */
   app.post("/webhooks/setup-telegram", async (c) => {
     const secret = c.req.header("x-webhook-secret") || c.req.query("secret");
     if (!secret || secret !== config.webhookSecret) {
@@ -105,10 +99,11 @@ export function createServerApp(): Hono {
     }
   });
 
+  appSingleton = app;
   return app;
 }
 
-/** Lazily setWebhook once per isolate (best-effort on Vercel cold start). */
+/** Fire-and-forget setWebhook (never block request path / cold start). */
 export function ensureTelegramWebhookRegistered(): void {
   if (!useTelegramWebhook() && !config.isVercel) return;
   if (webhookRegisterPromise) return;

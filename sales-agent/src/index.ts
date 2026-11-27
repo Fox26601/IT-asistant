@@ -11,6 +11,8 @@ import {
   registerTelegramWebhook,
 } from "./serverApp.js";
 import { startEscalationPoller } from "./integrations/escalationPoller.js";
+import { assertOwnerChatConfigured } from "./integrations/ownerChat.js";
+import { ensureSchema } from "./db/pg.js";
 
 async function main() {
   assertRuntimeConfig();
@@ -20,6 +22,9 @@ async function main() {
       "src/index.ts is the Node/Docker entry. On Vercel use api/index.ts (serverless)."
     );
   }
+
+  await ensureSchema();
+  await assertOwnerChatConfigured();
 
   const app = createServerApp();
   const bot = createClientBot();

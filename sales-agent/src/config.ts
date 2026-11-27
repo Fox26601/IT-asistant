@@ -68,12 +68,15 @@ export const config = {
   tz: required("TZ", "Europe/Kyiv"),
   allowMock: required("ALLOW_MOCK_INTEGRATIONS", "true") === "true",
   /**
-   * Session SQLite dir. On Vercel the filesystem is ephemeral — use /tmp.
-   * Local / Docker / Render: sales-agent/data.
+   * Legacy local file dir (owner override fallback when Postgres unavailable).
+   * Sessions/escalations use Postgres (DATABASE_URL / POSTGRES_URL).
    */
   dataDir: process.env.VERCEL
     ? "/tmp/sales-agent-data"
     : resolve(import.meta.dirname, "../data"),
+  /** Neon / Vercel Postgres connection string. */
+  databaseUrl:
+    required("DATABASE_URL") || required("POSTGRES_URL"),
   /** True when running on Vercel serverless (no long-poll / no setInterval poller). */
   isVercel: Boolean(process.env.VERCEL),
   /** Protects /cron/* (Vercel Cron Authorization: Bearer CRON_SECRET). */

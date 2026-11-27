@@ -106,7 +106,7 @@ curl -sS -X POST "$PUBLIC_BASE_URL/webhooks/setup-telegram" \
 
 7. DM `@Symbolic_Bot` → `/owner` → put `chat_id` into `OWNER_TELEGRAM_CHAT_ID` if still wrong.
 
-**Notes:** SQLite under `/tmp` is ephemeral across isolates; deals still notify Telegram + Calendar. Escalations use Vercel Cron (`*/3 * * * *` → `/cron/escalations`). `maxDuration` = 60s.
+**Notes:** Sessions + escalations use **Vercel Postgres / Neon** (`DATABASE_URL` — connected via Marketplace). Escalations Cron: `*/3 * * * *` → `/cron/escalations`. `maxDuration` = 60s.
 
 ### Wire the website (HornyFans)
 

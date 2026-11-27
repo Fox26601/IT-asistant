@@ -1,7 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
-import { resolve } from "node:path";
-import { config } from "../config.js";
+import { ensureSchema, getSql } from "./pg.js";
 
 export type DealSlots = {
   need?: string;
@@ -43,27 +40,6 @@ export type Session = {
   updatedAt: string;
 };
 
-mkdirSync(config.dataDir, { recursive: true });
-const dbPath = resolve(config.dataDir, "sessions.sqlite");
-/** Shared SQLite handle (sessions + escalations). */
-export const db = new DatabaseSync(dbPath);
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    channel TEXT NOT NULL,
-    external_user_id TEXT NOT NULL,
-    status TEXT NOT NULL,
-    slots_json TEXT NOT NULL,
-    messages_json TEXT NOT NULL,
-    calendar_event_id TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS idx_sessions_channel_user
-    ON sessions(channel, external_user_id);
-`);
-
 function rowToSession(row: Record<string, unknown>): Session {
   return {
     id: String(row.id),
@@ -80,32 +56,38 @@ function rowToSession(row: Record<string, unknown>): Session {
   };
 }
 
-export function getOpenSession(
+export async function getOpenSession(
   channel: Session["channel"],
   externalUserId: string
-): Session | null {
-  const row = db
-    .prepare(
-      `SELECT * FROM sessions
-       WHERE channel = ? AND external_user_id = ? AND status = 'open'
-       ORDER BY updated_at DESC LIMIT 1`
-    )
-    .get(channel, externalUserId) as Record<string, unknown> | undefined;
+): Promise<Session | null> {
+  await ensureSchema();
+  const rows = await getSql()`
+    SELECT * FROM sessions
+    WHERE channel = ${channel}
+      AND external_user_id = ${externalUserId}
+      AND status = 'open'
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `;
+  const row = rows[0] as Record<string, unknown> | undefined;
   return row ? rowToSession(row) : null;
 }
 
-export function getSessionById(id: string): Session | null {
-  const row = db
-    .prepare(`SELECT * FROM sessions WHERE id = ?`)
-    .get(id) as Record<string, unknown> | undefined;
+export async function getSessionById(id: string): Promise<Session | null> {
+  await ensureSchema();
+  const rows = await getSql()`
+    SELECT * FROM sessions WHERE id = ${id} LIMIT 1
+  `;
+  const row = rows[0] as Record<string, unknown> | undefined;
   return row ? rowToSession(row) : null;
 }
 
-export function createSession(
+export async function createSession(
   channel: Session["channel"],
   externalUserId: string,
   initialSlots: DealSlots = {}
-): Session {
+): Promise<Session> {
+  await ensureSchema();
   const now = new Date().toISOString();
   const session: Session = {
     id: crypto.randomUUID(),
@@ -117,50 +99,50 @@ export function createSession(
     createdAt: now,
     updatedAt: now,
   };
-  db.prepare(
-    `INSERT INTO sessions
+  const slotsJson = JSON.stringify(session.slots);
+  const messagesJson = JSON.stringify(session.messages);
+  await getSql()`
+    INSERT INTO sessions
       (id, channel, external_user_id, status, slots_json, messages_json, calendar_event_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`
-  ).run(
-    session.id,
-    session.channel,
-    session.externalUserId,
-    session.status,
-    JSON.stringify(session.slots),
-    JSON.stringify(session.messages),
-    session.createdAt,
-    session.updatedAt
-  );
+    VALUES (
+      ${session.id},
+      ${session.channel},
+      ${session.externalUserId},
+      ${session.status},
+      ${slotsJson},
+      ${messagesJson},
+      NULL,
+      ${session.createdAt},
+      ${session.updatedAt}
+    )
+  `;
   return session;
 }
 
-export function saveSession(session: Session): void {
+export async function saveSession(session: Session): Promise<void> {
+  await ensureSchema();
   session.updatedAt = new Date().toISOString();
-  db.prepare(
-    `UPDATE sessions SET
-      status = ?,
-      slots_json = ?,
-      messages_json = ?,
-      calendar_event_id = ?,
-      updated_at = ?
-     WHERE id = ?`
-  ).run(
-    session.status,
-    JSON.stringify(session.slots),
-    JSON.stringify(session.messages),
-    session.calendarEventId ?? null,
-    session.updatedAt,
-    session.id
-  );
+  const slotsJson = JSON.stringify(session.slots);
+  const messagesJson = JSON.stringify(session.messages);
+  const calendarEventId = session.calendarEventId ?? null;
+  await getSql()`
+    UPDATE sessions SET
+      status = ${session.status},
+      slots_json = ${slotsJson},
+      messages_json = ${messagesJson},
+      calendar_event_id = ${calendarEventId},
+      updated_at = ${session.updatedAt}
+    WHERE id = ${session.id}
+  `;
 }
 
-export function getOrCreateOpenSession(
+export async function getOrCreateOpenSession(
   channel: Session["channel"],
   externalUserId: string,
   initialSlots: DealSlots = {}
-): Session {
+): Promise<Session> {
   return (
-    getOpenSession(channel, externalUserId) ??
-    createSession(channel, externalUserId, initialSlots)
+    (await getOpenSession(channel, externalUserId)) ??
+    (await createSession(channel, externalUserId, initialSlots))
   );
 }

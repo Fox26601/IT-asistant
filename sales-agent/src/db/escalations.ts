@@ -1,4 +1,4 @@
-import { db } from "./sessions.js";
+import { ensureSchema, getSql } from "./pg.js";
 
 export type EscalationRecord = {
   escalationId: string;
@@ -10,24 +10,6 @@ export type EscalationRecord = {
   updatedAt: string;
   deliveredAt?: string;
 };
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS escalations (
-    escalation_id TEXT NOT NULL,
-    session_id TEXT NOT NULL,
-    question TEXT,
-    status TEXT NOT NULL,
-    answer TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    delivered_at TEXT,
-    PRIMARY KEY (escalation_id, session_id)
-  );
-  CREATE INDEX IF NOT EXISTS idx_escalations_status
-    ON escalations(status);
-  CREATE INDEX IF NOT EXISTS idx_escalations_session
-    ON escalations(session_id);
-`);
 
 function rowToRecord(row: Record<string, unknown>): EscalationRecord {
   return {
@@ -42,27 +24,37 @@ function rowToRecord(row: Record<string, unknown>): EscalationRecord {
   };
 }
 
-export function trackEscalation(input: {
+export async function trackEscalation(input: {
   escalationId: string;
   sessionId: string;
   question: string;
-}): EscalationRecord {
+}): Promise<EscalationRecord> {
+  await ensureSchema();
   const now = new Date().toISOString();
-  db.prepare(
-    `INSERT INTO escalations
+  await getSql()`
+    INSERT INTO escalations
       (escalation_id, session_id, question, status, answer, created_at, updated_at, delivered_at)
-     VALUES (?, ?, ?, 'pending', NULL, ?, ?, NULL)
-     ON CONFLICT(escalation_id, session_id) DO UPDATE SET
-       question = excluded.question,
-       status = CASE
-         WHEN escalations.status IN ('delivered', 'answered', 'dismissed') THEN escalations.status
-         ELSE 'pending'
-       END,
-       updated_at = excluded.updated_at`
-  ).run(input.escalationId, input.sessionId, input.question, now, now);
+    VALUES (
+      ${input.escalationId},
+      ${input.sessionId},
+      ${input.question},
+      'pending',
+      NULL,
+      ${now},
+      ${now},
+      NULL
+    )
+    ON CONFLICT (escalation_id, session_id) DO UPDATE SET
+      question = EXCLUDED.question,
+      status = CASE
+        WHEN escalations.status IN ('delivered', 'answered', 'dismissed') THEN escalations.status
+        ELSE 'pending'
+      END,
+      updated_at = EXCLUDED.updated_at
+  `;
 
   return (
-    getEscalation(input.escalationId, input.sessionId) || {
+    (await getEscalation(input.escalationId, input.sessionId)) || {
       escalationId: input.escalationId,
       sessionId: input.sessionId,
       question: input.question,
@@ -73,110 +65,118 @@ export function trackEscalation(input: {
   );
 }
 
-export function getEscalation(
+export async function getEscalation(
   escalationId: string,
   sessionId: string
-): EscalationRecord | null {
-  const row = db
-    .prepare(
-      `SELECT * FROM escalations WHERE escalation_id = ? AND session_id = ?`
-    )
-    .get(escalationId, sessionId) as Record<string, unknown> | undefined;
+): Promise<EscalationRecord | null> {
+  await ensureSchema();
+  const rows = await getSql()`
+    SELECT * FROM escalations
+    WHERE escalation_id = ${escalationId} AND session_id = ${sessionId}
+    LIMIT 1
+  `;
+  const row = rows[0] as Record<string, unknown> | undefined;
   return row ? rowToRecord(row) : null;
 }
 
-export function listPendingEscalations(): EscalationRecord[] {
-  const rows = db
-    .prepare(
-      `SELECT * FROM escalations
-       WHERE status IN ('pending', 'answered')
-       ORDER BY created_at ASC`
-    )
-    .all() as Record<string, unknown>[];
-  return rows.map(rowToRecord);
+export async function listPendingEscalations(): Promise<EscalationRecord[]> {
+  await ensureSchema();
+  const rows = await getSql()`
+    SELECT * FROM escalations
+    WHERE status IN ('pending', 'answered')
+    ORDER BY created_at ASC
+  `;
+  return (rows as Record<string, unknown>[]).map(rowToRecord);
 }
 
-export function listPendingEscalationIds(): string[] {
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT escalation_id FROM escalations
-       WHERE status = 'pending'`
-    )
-    .all() as { escalation_id: string }[];
-  return rows.map((r) => String(r.escalation_id));
+export async function listPendingEscalationIds(): Promise<string[]> {
+  await ensureSchema();
+  const rows = await getSql()`
+    SELECT DISTINCT escalation_id FROM escalations
+    WHERE status = 'pending'
+  `;
+  return (rows as { escalation_id: string }[]).map((r) =>
+    String(r.escalation_id)
+  );
 }
 
-/** Pending escalation ids for one session (tool fallback when ids omitted). */
-export function listPendingEscalationIdsForSession(
+export async function listPendingEscalationIdsForSession(
   sessionId: string
-): string[] {
-  const rows = db
-    .prepare(
-      `SELECT escalation_id FROM escalations
-       WHERE session_id = ? AND status = 'pending'
-       ORDER BY created_at ASC`
-    )
-    .all(sessionId) as { escalation_id: string }[];
-  return rows.map((r) => String(r.escalation_id));
+): Promise<string[]> {
+  await ensureSchema();
+  const rows = await getSql()`
+    SELECT escalation_id FROM escalations
+    WHERE session_id = ${sessionId} AND status = 'pending'
+    ORDER BY created_at ASC
+  `;
+  return (rows as { escalation_id: string }[]).map((r) =>
+    String(r.escalation_id)
+  );
 }
 
-export function sessionsForEscalationId(
+export async function sessionsForEscalationId(
   escalationId: string
-): EscalationRecord[] {
-  const rows = db
-    .prepare(`SELECT * FROM escalations WHERE escalation_id = ?`)
-    .all(escalationId) as Record<string, unknown>[];
-  return rows.map(rowToRecord);
+): Promise<EscalationRecord[]> {
+  await ensureSchema();
+  const rows = await getSql()`
+    SELECT * FROM escalations WHERE escalation_id = ${escalationId}
+  `;
+  return (rows as Record<string, unknown>[]).map(rowToRecord);
 }
 
-export function markAnswered(
+export async function markAnswered(
   escalationId: string,
   answer: string
-): void {
+): Promise<void> {
+  await ensureSchema();
   const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE escalations SET
+  await getSql()`
+    UPDATE escalations SET
       status = CASE WHEN status = 'delivered' THEN 'delivered' ELSE 'answered' END,
-      answer = ?,
-      updated_at = ?
-     WHERE escalation_id = ? AND status IN ('pending', 'answered')`
-  ).run(answer, now, escalationId);
+      answer = ${answer},
+      updated_at = ${now}
+    WHERE escalation_id = ${escalationId}
+      AND status IN ('pending', 'answered')
+  `;
 }
 
-/** Mark site-dismissed escalations so they leave the pending poll set. */
-export function markDismissed(escalationId: string): void {
+export async function markDismissed(escalationId: string): Promise<void> {
+  await ensureSchema();
   const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE escalations SET
+  await getSql()`
+    UPDATE escalations SET
       status = CASE WHEN status = 'delivered' THEN 'delivered' ELSE 'dismissed' END,
-      updated_at = ?
-     WHERE escalation_id = ? AND status IN ('pending', 'answered', 'dismissed')`
-  ).run(now, escalationId);
+      updated_at = ${now}
+    WHERE escalation_id = ${escalationId}
+      AND status IN ('pending', 'answered', 'dismissed')
+  `;
 }
 
-export function markDelivered(
+export async function markDelivered(
   escalationId: string,
   sessionId: string
-): void {
+): Promise<void> {
+  await ensureSchema();
   const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE escalations SET
+  await getSql()`
+    UPDATE escalations SET
       status = 'delivered',
-      delivered_at = ?,
-      updated_at = ?
-     WHERE escalation_id = ? AND session_id = ?`
-  ).run(now, now, escalationId, sessionId);
+      delivered_at = ${now},
+      updated_at = ${now}
+    WHERE escalation_id = ${escalationId} AND session_id = ${sessionId}
+  `;
 }
 
-export function markFailed(
+export async function markFailed(
   escalationId: string,
   sessionId: string
-): void {
+): Promise<void> {
+  await ensureSchema();
   const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE escalations SET
+  await getSql()`
+    UPDATE escalations SET
       status = 'failed',
-      updated_at = ?
-     WHERE escalation_id = ? AND session_id = ?`
-  ).run(now, escalationId, sessionId);
+      updated_at = ${now}
+    WHERE escalation_id = ${escalationId} AND session_id = ${sessionId}
+  `;
 }

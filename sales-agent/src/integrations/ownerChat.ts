@@ -2,7 +2,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Bot } from "grammy";
 import { config } from "../config.js";
+import { getMeta, setMeta } from "../db/pg.js";
 
+const OWNER_META_KEY = "owner_telegram_chat_id";
 const overridePath = resolve(config.dataDir, "owner-chat-id.txt");
 
 let cachedBotId: string | null | undefined;
@@ -36,8 +38,18 @@ export async function resolveBotId(): Promise<string | null> {
 
 /** Effective owner chat for notifies. Never returns the bot's own id. */
 export async function resolveOwnerChatId(): Promise<string> {
+  let pgOverride = "";
+  try {
+    if (config.databaseUrl) {
+      pgOverride = await getMeta(OWNER_META_KEY);
+    }
+  } catch (err) {
+    console.warn("[ownerChat] postgres meta read failed", err);
+  }
+
   const candidates = [
     runtimeOverride,
+    pgOverride,
     readFileOverride(),
     config.ownerChatId,
   ]
@@ -57,14 +69,25 @@ export async function resolveOwnerChatId(): Promise<string> {
   return "";
 }
 
-export function setOwnerChatOverride(chatId: string): void {
+export async function setOwnerChatOverride(chatId: string): Promise<void> {
   const id = chatId.trim();
   if (!id) throw new Error("empty chat id");
   runtimeOverride = id;
-  mkdirSync(config.dataDir, { recursive: true });
-  writeFileSync(overridePath, `${id}\n`, "utf8");
+  try {
+    if (config.databaseUrl) {
+      await setMeta(OWNER_META_KEY, id);
+    }
+  } catch (err) {
+    console.warn("[ownerChat] postgres meta write failed", err);
+  }
+  try {
+    mkdirSync(config.dataDir, { recursive: true });
+    writeFileSync(overridePath, `${id}\n`, "utf8");
+  } catch {
+    /* /tmp may be unavailable in some runtimes — Postgres is source of truth */
+  }
   console.log(
-    `[ownerChat] override saved chat_id=${id} path=${overridePath} — also set OWNER_TELEGRAM_CHAT_ID on Render`
+    `[ownerChat] override saved chat_id=${id} — also set OWNER_TELEGRAM_CHAT_ID on Vercel`
   );
 }
 
