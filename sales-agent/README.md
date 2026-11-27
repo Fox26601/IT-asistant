@@ -158,3 +158,38 @@ Checkout CTAs stay on the site: `/book`, `/customs`, `/browse` (plus `/contact` 
 Collects: need, format, budget/package, preferred date-time, contact, consent → Calendar + owner Telegram.
 
 Client commands: `/start`, `/status`.
+
+## Corp outbound email (optional)
+
+Ops / PayPal Support mail goes **from this service**, not from HornyFans app code.
+
+Same `SMTP_*` names as the site password-reset mailbox (`kiniks@symbolicpleasures.com` on Gmail). Copy those env vars onto the **IT-asistant** Render service (they are **not** present there until you add them).
+
+| Key | Notes |
+|---|---|
+| `SMTP_HOST` | e.g. `smtp.gmail.com` |
+| `SMTP_PORT` | `587` (STARTTLS) or `465` (SSL) |
+| `SMTP_USER` | full corp mailbox |
+| `SMTP_PASSWORD` | Google App Password |
+| `SMTP_FROM` | same as `SMTP_USER` for Gmail — bare address only, **no** display-name / `SMTP_FROM_NAME` |
+| `SMTP_TLS_MODE` | optional: `auto` \| `starttls` \| `ssl` \| `plain` |
+
+Send paths (after SMTP is set):
+
+```bash
+# CLI (local or one-off shell with env)
+npm run mail:send -- --to support@example.com \
+  --subject "Live Subscriptions blocked" \
+  --body-file scripts/paypal-support-draft.txt
+
+# Dry-run (no send)
+npm run mail:send -- --to support@example.com --subject "test" --body-file scripts/paypal-support-draft.txt --dry-run
+
+# HTTP (same WEBHOOK_SECRET as site-lead)
+curl -X POST "$PUBLIC_BASE_URL/webhooks/corp-mail" \
+  -H "Content-Type: application/json" \
+  -H "x-webhook-secret: $WEBHOOK_SECRET" \
+  -d '{"to":"…","subject":"…","text":"…","confirm":"SEND"}'
+```
+
+`GET /health` includes `smtp.configured` (true/false) without exposing the password.
