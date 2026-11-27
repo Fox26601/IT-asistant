@@ -9,10 +9,7 @@ import {
   markFailed,
   sessionsForEscalationId,
 } from "../db/escalations.js";
-import {
-  getSessionById,
-  saveSession,
-} from "../db/sessions.js";
+import { getSessionById, saveSession } from "../db/sessions.js";
 import {
   checkEscalations,
   type EscalationStatusRow,
@@ -58,9 +55,9 @@ async function deliverToSession(input: {
   answer: string;
   followUp: string;
 }): Promise<void> {
-  const session = getSessionById(input.sessionId);
+  const session = await getSessionById(input.sessionId);
   if (!session) {
-    markFailed(input.escalationId, input.sessionId);
+    await markFailed(input.escalationId, input.sessionId);
     console.warn(
       `[escalationPoller] session missing ${input.sessionId} for ${input.escalationId}`
     );
@@ -72,7 +69,7 @@ async function deliverToSession(input: {
     content: input.followUp,
     at: new Date().toISOString(),
   });
-  saveSession(session);
+  await saveSession(session);
 
   let deliveredToBuyer = false;
   if (session.channel === "telegram") {
@@ -81,7 +78,7 @@ async function deliverToSession(input: {
       input.followUp
     );
     if (!deliveredToBuyer) {
-      markFailed(input.escalationId, input.sessionId);
+      await markFailed(input.escalationId, input.sessionId);
       await notifyOwnerEscalationAnswer({
         sessionId: session.id,
         channel: session.channel,
@@ -94,7 +91,7 @@ async function deliverToSession(input: {
     }
   }
 
-  markDelivered(input.escalationId, input.sessionId);
+  await markDelivered(input.escalationId, input.sessionId);
   await notifyOwnerEscalationAnswer({
     sessionId: session.id,
     channel: session.channel,
@@ -110,7 +107,7 @@ export async function pollEscalationsOnce(): Promise<void> {
   if (running) return;
   running = true;
   try {
-    const pendingIds = listPendingEscalationIds();
+    const pendingIds = await listPendingEscalationIds();
     if (!pendingIds.length) return;
 
     const result = await checkEscalations(pendingIds);
@@ -130,15 +127,15 @@ export async function pollEscalationsOnce(): Promise<void> {
         const answer = (row.answer || "").trim();
         if (!answer) continue;
 
-        markAnswered(row.escalation_id, answer);
+        await markAnswered(row.escalation_id, answer);
 
-        const linked = sessionsForEscalationId(row.escalation_id).filter(
+        const linked = (await sessionsForEscalationId(row.escalation_id)).filter(
           (r) => r.status === "answered" || r.status === "pending"
         );
         const targets =
           linked.length > 0
             ? linked.filter((r) => r.status !== "delivered")
-            : listPendingEscalations().filter(
+            : (await listPendingEscalations()).filter(
                 (r) => r.escalationId === row.escalation_id
               );
 
@@ -160,9 +157,9 @@ export async function pollEscalationsOnce(): Promise<void> {
       }
 
       if (status === "dismissed") {
-        markDismissed(row.escalation_id);
+        await markDismissed(row.escalation_id);
 
-        const linked = sessionsForEscalationId(row.escalation_id).filter(
+        const linked = (await sessionsForEscalationId(row.escalation_id)).filter(
           (r) =>
             r.status === "dismissed" ||
             r.status === "pending" ||
@@ -196,7 +193,6 @@ export function startEscalationPoller(): void {
   console.log(
     `[escalationPoller] starting (every ${POLL_MS / 1000}s); follows up when site escalations API answers`
   );
-  // Kick once shortly after boot, then interval
   setTimeout(() => {
     void pollEscalationsOnce();
   }, 15_000);

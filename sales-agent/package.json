@@ -14,9 +14,13 @@
   "engines": {
     "node": ">=22"
   },
+  "vercel": {
+    "installCommand": "npm ci"
+  },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@hono/node-server": "^1.14.0",
+    "@neondatabase/serverless": "^1.2.2",
     "googleapis": "^148.0.0",
     "grammy": "^1.35.0",
     "hono": "^4.7.0",

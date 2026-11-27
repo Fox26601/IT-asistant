@@ -1,5 +1,5 @@
 /**
- * Send one corp email via SMTP_* (Gmail App Password / same mailbox as site).
+ * Send one corp email via Resend (preferred) or SMTP_* fallback.
  *
  * Usage:
  *   npx tsx scripts/send-corp-mail.ts --to ADDR --subject "..." --body-file path.md
@@ -10,7 +10,11 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { config } from "../src/config.js";
-import { sendCorpMail, smtpConfigured, smtpStatus } from "../src/integrations/smtpMail.js";
+import {
+  sendCorpMail,
+  mailConfigured,
+  mailStatus,
+} from "../src/integrations/corpMail.js";
 
 function argValue(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -56,8 +60,8 @@ async function main() {
     process.exit(2);
   }
 
-  console.log("[corp-mail] smtp status:", JSON.stringify(smtpStatus()));
-  console.log(`[corp-mail] from=${config.smtpFrom} to=${to}`);
+  console.log("[corp-mail] status:", JSON.stringify(mailStatus()));
+  console.log(`[corp-mail] from=${config.mailFrom} to=${to}`);
   console.log(`[corp-mail] subject=${subject}`);
 
   if (dryRun) {
@@ -66,15 +70,17 @@ async function main() {
     process.exit(0);
   }
 
-  if (!smtpConfigured()) {
+  if (!mailConfigured()) {
     console.error(
-      "[corp-mail] SMTP not configured. Set SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD SMTP_FROM"
+      "[corp-mail] not configured. Set RESEND_API_KEY + MAIL_FROM (preferred) or SMTP_* fallback."
     );
     process.exit(1);
   }
 
   const result = await sendCorpMail({ to, subject, text, replyTo });
-  console.log(`[corp-mail] ok messageId=${result.messageId}`);
+  console.log(
+    `[corp-mail] ok provider=${result.provider} messageId=${result.messageId}`
+  );
 }
 
 main().catch((err) => {

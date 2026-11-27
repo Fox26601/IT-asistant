@@ -16,8 +16,8 @@ npm install
 
 1. [@BotFather](https://t.me/BotFather) → `/newbot` → `TELEGRAM_BOT_TOKEN`
 2. `TELEGRAM_BOT_USERNAME` (without `@`)
-3. Message bot in **private** chat: `/owner` → bot replies with your user `chat_id`. Put that value in Render `OWNER_TELEGRAM_CHAT_ID` (must **not** be the bot’s own id — that causes 403 “bot can't send messages to the bot”). `/start` alone is for buyers.
-4. Set `TELEGRAM_WEBHOOK_SECRET` to a long random string (used on Render)
+3. Message bot in **private** chat: `/owner` → bot replies with your user `chat_id`. Put that value in Vercel `OWNER_TELEGRAM_CHAT_ID` (must **not** be the bot’s own id — that causes 403 “bot can't send messages to the bot”). `/start` alone is for buyers.
+4. Set `TELEGRAM_WEBHOOK_SECRET` to a long random string (used in webhook path)
 
 ### 2) Gemini
 
@@ -37,7 +37,7 @@ Agent starts without a site secret (mock/dev), but site tools return `site_not_c
 
 `fetch_catalog` and `fetch_policy` use an in-process **TTL cache (~5 min)**. Availability and status endpoints are always fresh. Policy `hard_limits` / `limits_text` are stripped before the model sees them.
 
-If catalog/policy do not answer a question, the agent calls **`escalate_to_operator`** → site admin AI tab (`https://symbolicpleasures.com/admin?tab=ai`). A background poller (~every 3 min) checks pending ids: **answered** → paraphrase follow-up to the buyer in Telegram; **dismissed** → short “not confirmed” + `/book` or `/contact`, then clear pending. Web sessions store the reply on the session and notify the owner.
+If catalog/policy do not answer a question, the agent calls **`escalate_to_operator`** → site admin AI tab (`https://symbolicpleasures.com/admin?tab=ai`). Escalation follow-ups: on Node/Docker a background poller (~every 3 min); on **Vercel** a Cron job hits `GET /cron/escalations` every 3 minutes. **answered** → paraphrase follow-up to the buyer in Telegram; **dismissed** → short “not confirmed” + `/book` or `/contact`, then clear pending. Web sessions store the reply on the session and notify the owner.
 
 If `/api/sales-agent/escalations` is still **404**, tools return `not_available` and the agent falls back to `/contact` or `/book` | `/customs` | `/browse` (no follow-up promise).
 
@@ -64,57 +64,62 @@ curl -sS -w "\n%{http_code}\n" -X POST "$SITE_BASE_URL/api/sales-agent/escalatio
 npm run start
 ```
 
-- `PUBLIC_BASE_URL=http://localhost:3847` → **long polling**
-- HTTPS public URL → **Telegram webhook**
+- `PUBLIC_BASE_URL=http://localhost:3847` → **long polling** (Node only)
+- HTTPS public URL / **Vercel** → **Telegram webhook** (long-poll cannot run on serverless)
 
-## Deploy on Render (same workspace as the site)
+## Deploy on Vercel (primary)
 
-Repo: GitHub `Fox26601/IT-asistant` (Render source). Site stays as-is; agent is a **second Web Service**.
+Repo: GitHub `Fox26601/IT-asistant`. Root directory: **`sales-agent`** ([`vercel.json`](vercel.json) + [`api/index.ts`](api/index.ts)).
 
-1. Render dashboard → **New → Web Service**
-2. Connect repo `Fox26601/IT-asistant`
-3. Settings:
-   - **Root Directory:** `sales-agent`
-   - **Runtime:** Docker (uses [`Dockerfile`](Dockerfile))  
-     or Native: Build `npm install`, Start `npm run start`
-4. After first deploy, copy the service URL, e.g. `https://sales-agent-xxxx.onrender.com`
-5. Environment variables on **this** service:
+1. Vercel → **Add New Project** → import `Fox26601/IT-asistant`
+2. **Root Directory:** `sales-agent` · Node **22.x** · Framework: Other
+3. After first deploy, copy the URL, e.g. `https://it-asistant.vercel.app`
+4. Project → **Settings → Environment Variables** (Production + Preview):
 
-| Key | Example |
+| Key | Notes |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | from BotFather |
-| `OWNER_TELEGRAM_CHAT_ID` | your chat id |
-| `TELEGRAM_BOT_USERNAME` | bot name without `@` |
+| `OWNER_TELEGRAM_CHAT_ID` | your user chat id from `/owner` (not the bot id) |
+| `TELEGRAM_BOT_USERNAME` | without `@` |
 | `TELEGRAM_WEBHOOK_SECRET` | long random string |
-| `GEMINI_API_KEY` | from AI Studio |
-| `GEMINI_MODEL` | `gemini-3.8-flash` (optional) |
-| `WEBHOOK_SECRET` | shared with the site inbound webhook |
+| `GEMINI_API_KEY` | AI Studio |
+| `GEMINI_MODEL` | e.g. `gemini-2.5-flash` |
+| `WEBHOOK_SECRET` | same as site `SALES_AGENT_WEBHOOK_SECRET` |
 | `SITE_BASE_URL` | `https://symbolicpleasures.com` |
-| `SITE_WEBHOOK_SECRET` | same as site `SALES_AGENT_WEBHOOK_SECRET` (often = `WEBHOOK_SECRET`) |
-| `PUBLIC_BASE_URL` | `https://sales-agent-xxxx.onrender.com` (no trailing slash) |
-| `ALLOW_MOCK_INTEGRATIONS` | `true` until Google Calendar is wired |
-| `PORT` | `3847` (Render may override with `$PORT` — app reads `PORT`) |
+| `SITE_WEBHOOK_SECRET` | same as `WEBHOOK_SECRET` if shared |
+| `PUBLIC_BASE_URL` | `https://<project>.vercel.app` (no trailing slash) |
+| `ALLOW_MOCK_INTEGRATIONS` | `true` until Calendar OAuth |
+| `RESEND_API_KEY` | from [resend.com](https://resend.com) (preferred mail) |
+| `MAIL_FROM` | bare `kiniks@symbolicpleasures.com` (or Resend onboarding from) |
+| `CRON_SECRET` | random; Cron sends `Authorization: Bearer …` |
+| `SMTP_*` | optional fallback only — often blocked on serverless |
 
-6. Redeploy → open `GET https://…/health` → should be `{ "ok": true }`
-7. Message the bot `/start` (first request may cold-start ~1 min on Free)
+Do **not** set `SMTP_FROM_NAME`.
 
-Optional Blueprint: [`render.yaml`](render.yaml) → **New → Blueprint**.
+5. Redeploy → `GET https://…/health` → `ok: true`, `runtime: "vercel"`
+6. Register Telegram webhook once:
 
-### Wire the existing site service
+```bash
+curl -sS -X POST "$PUBLIC_BASE_URL/webhooks/setup-telegram" \
+  -H "x-webhook-secret: $WEBHOOK_SECRET"
+```
 
-On the **website** Render service env:
+7. DM `@Symbolic_Bot` → `/owner` → put `chat_id` into `OWNER_TELEGRAM_CHAT_ID` if still wrong.
+
+**Notes:** Sessions + escalations use **Vercel Postgres / Neon** (`DATABASE_URL` — connected via Marketplace). Escalations Cron: `*/3 * * * *` → `/cron/escalations`. `maxDuration` = 60s.
+
+### Wire the website (HornyFans)
 
 | Key | Value |
 |---|---|
-| `SALES_AGENT_URL` | same as agent `PUBLIC_BASE_URL` |
-| `SALES_AGENT_WEBHOOK_SECRET` | same as agent `WEBHOOK_SECRET` / `SITE_WEBHOOK_SECRET` |
+| `SALES_AGENT_URL` | same as agent `PUBLIC_BASE_URL` (Vercel HTTPS) |
+| `SALES_AGENT_WEBHOOK_SECRET` | same as agent `WEBHOOK_SECRET` |
 
-Redeploy the site. Form proxy must `POST {SALES_AGENT_URL}/webhooks/site-lead` with header `x-webhook-secret`.
+Redeploy the site. Form proxy: `POST {SALES_AGENT_URL}/webhooks/site-lead` + `x-webhook-secret`.
 
-### Free plan notes
+### Legacy: Render (optional)
 
-- Service **sleeps** after ~15 min idle; Telegram/site HTTPS traffic wakes it (cold start).
-- SQLite under `data/` is **ephemeral** on Free — sessions may reset on redeploy; deals still go to Calendar + your Telegram notify.
+[`Dockerfile`](Dockerfile) / [`render.yaml`](render.yaml) still work for a long-running Node process (long-poll or webhook). Prefer Vercel — do not pay Render Starter just for SMTP; use Resend instead.
 
 ## Ops alerts (site → Telegram owner)
 
@@ -183,35 +188,26 @@ Client commands: `/start`, `/status`.
 
 Ops / PayPal Support mail goes **from this service**, not from HornyFans app code.
 
-Same `SMTP_*` names as the site password-reset mailbox (`kiniks@symbolicpleasures.com` on Gmail). Copy those env vars onto the **IT-asistant** Render service.
-
-**Render Free blocks outbound SMTP** (ports 25/465/587). HornyFans is on **Starter** so site mail works; IT-asistant on **Free** times out to `smtp.gmail.com` even with a valid App Password. Upgrade IT-asistant to **Starter** (Dashboard → service → plan) — same credentials then work. Prefer `SMTP_PORT=587` (STARTTLS) or `465` + `SMTP_TLS_MODE=ssl`.
+**Prefer Resend HTTP** on Vercel (SMTP ports 25/465/587 are often blocked on serverless). SMTP_* remains a fallback for local / VPS.
 
 | Key | Notes |
 |---|---|
-| `SMTP_HOST` | e.g. `smtp.gmail.com` |
-| `SMTP_PORT` | `587` (STARTTLS) or `465` (SSL) |
-| `SMTP_USER` | full corp mailbox |
-| `SMTP_PASSWORD` | Google App Password |
-| `SMTP_FROM` | same as `SMTP_USER` for Gmail — bare address only, **no** display-name / `SMTP_FROM_NAME` |
+| `RESEND_API_KEY` | [resend.com](https://resend.com) API key (free tier OK) |
+| `MAIL_FROM` | bare From address (falls back to `SMTP_FROM`) — **no** display-name |
+| `SMTP_HOST` / `PORT` / `USER` / `PASSWORD` / `FROM` | optional fallback |
 | `SMTP_TLS_MODE` | optional: `auto` \| `starttls` \| `ssl` \| `plain` |
 
-Send paths (after SMTP is set):
+Do **not** set `SMTP_FROM_NAME`. Verify the sending domain (or Resend onboarding domain) in the Resend dashboard before production mail.
 
 ```bash
-# CLI (local or one-off shell with env)
-npm run mail:send -- --to support@example.com \
-  --subject "Live Subscriptions blocked" \
+npm run mail:send -- --to you@example.com \
+  --subject "IT-asistant mail smoke" \
   --body-file scripts/paypal-support-draft.txt
 
-# Dry-run (no send)
-npm run mail:send -- --to support@example.com --subject "test" --body-file scripts/paypal-support-draft.txt --dry-run
-
-# HTTP (same WEBHOOK_SECRET as site-lead)
 curl -X POST "$PUBLIC_BASE_URL/webhooks/corp-mail" \
   -H "Content-Type: application/json" \
   -H "x-webhook-secret: $WEBHOOK_SECRET" \
   -d '{"to":"…","subject":"…","text":"…","confirm":"SEND"}'
 ```
 
-`GET /health` includes `smtp.configured` (true/false) without exposing the password.
+`GET /health` → `mail.configured` / `mail.provider` (`resend` \| `smtp`).

@@ -7,31 +7,35 @@ import {
 import {
   clearTelegramWebhook,
   createClientBot,
-  mountTelegramWebhook,
+  createServerApp,
   registerTelegramWebhook,
-} from "./channels/telegram.js";
-import { createWebApp } from "./channels/web.js";
+} from "./serverApp.js";
 import { startEscalationPoller } from "./integrations/escalationPoller.js";
 import { assertOwnerChatConfigured } from "./integrations/ownerChat.js";
-import "./db/escalations.js";
+import { ensureSchema } from "./db/pg.js";
 
 async function main() {
   assertRuntimeConfig();
+
+  if (config.isVercel) {
+    throw new Error(
+      "src/index.ts is the Node/Docker entry. On Vercel use api/index.ts (serverless)."
+    );
+  }
+
+  await ensureSchema();
   await assertOwnerChatConfigured();
 
-  const app = createWebApp();
+  const app = createServerApp();
   const bot = createClientBot();
   const webhookMode = useTelegramWebhook();
-
-  if (webhookMode) {
-    const path = mountTelegramWebhook(app, bot);
-    console.log(`[telegram] HTTP webhook route ready: POST ${path}`);
-  }
 
   serve({ fetch: app.fetch, port: config.port }, async (info) => {
     console.log(`[http] listening on port ${info.port}`);
     console.log(`[http] POST /webhooks/site-lead (header x-webhook-secret)`);
     console.log(`[http] POST /webhooks/ops-alert (header x-webhook-secret)`);
+    console.log(`[http] POST /webhooks/corp-mail (header x-webhook-secret)`);
+    console.log(`[http] GET|POST /cron/escalations`);
     console.log(`[http] PUBLIC_BASE_URL=${config.publicBaseUrl}`);
     startEscalationPoller();
 
