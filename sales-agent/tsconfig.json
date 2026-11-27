@@ -8,8 +8,18 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "api/**/*.ts",
+    "bot/**/*.ts",
+    "config/**/*.ts",
+    "mail/**/*.ts",
+    "messaging/**/*.ts",
+    "sales-manager/**/*.ts",
+    "shared/**/*.ts",
+    "scripts/**/*.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
 }

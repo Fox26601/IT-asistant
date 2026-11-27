@@ -1,25 +1,32 @@
 import { Hono } from "hono";
-import { config } from "../config.js";
+import { config } from "../../config/env.js";
 import {
   createSession,
   getSessionById,
   saveSession,
   type DealSlots,
-} from "../db/sessions.js";
-import { handleUserTurn } from "../agent/dialogue.js";
+} from "../../sales-manager/db/sessions.js";
+import { handleUserTurn } from "../../sales-manager/agent/dialogue.js";
 import {
   SUGGESTED_PAGE_PATHS,
   type SuggestedPage,
-} from "../agent/prompts.js";
+} from "../../sales-manager/agent/prompts.js";
 import {
   notifyOwnerLead,
   notifyOwnerOpsAlert,
-} from "../integrations/ownerNotify.js";
+} from "../../messaging/ownerNotify.js";
 import {
   sendCorpMail,
   mailConfigured,
   mailStatus,
-} from "../integrations/corpMail.js";
+} from "../../mail/corpMail.js";
+import { createCorsMiddleware } from "../security/cors.js";
+import {
+  authorizeWebhookSecret,
+  unauthorized,
+} from "../security/webhookAuth.js";
+import { clientKey, rateLimit } from "../security/rateLimit.js";
+import { redactSecrets, safeErrorDetail } from "../security/redact.js";
 
 /** In-process ops-alert dedupe: fingerprint → last sent ms. */
 const opsAlertDedupe = new Map<string, number>();
@@ -129,14 +136,24 @@ function seedLeadSlots(body: LeadBody, contact: string): DealSlots {
   return slots;
 }
 
+function rateLimited(
+  c: { req: { header: (name: string) => string | undefined } },
+  route: string,
+  limit: number,
+  windowMs: number
+) {
+  return rateLimit(clientKey(c, route), { limit, windowMs });
+}
+
 export function createWebApp() {
   const app = new Hono();
+  app.use("*", createCorsMiddleware());
 
   app.get("/health", async (c) => {
     let escalationsApi = false;
     try {
       const { escalationsAvailable } = await import(
-        "../integrations/siteApi.js"
+        "../../sales-manager/siteApi.js"
       );
       escalationsApi = await escalationsAvailable();
     } catch {
@@ -167,17 +184,15 @@ export function createWebApp() {
   });
 
   /**
-   * One-off corp outbound mail (PayPal Support, ops). Auth: x-webhook-secret.
-   * Body: { to, subject, text, confirm: "SEND" [, replyTo ] }
-   * Prefer RESEND_API_KEY; SMTP_* is fallback. No SMTP_FROM_NAME.
+   * Site ops alerts → owner Telegram (same bot/chat as leads).
+   * Auth: header x-webhook-secret only (no ?secret=).
    */
-
-  /** Site ops alerts → owner Telegram (same bot/chat as leads). */
   app.post("/webhooks/ops-alert", async (c) => {
-    const secret = c.req.header("x-webhook-secret") || c.req.query("secret");
-    if (!secret || secret !== config.webhookSecret) {
-      return c.json({ error: "unauthorized" }, 401);
+    const rl = rateLimited(c, "ops-alert", 60, 60_000);
+    if (!rl.allowed) {
+      return c.json({ error: "rate_limited" }, 429);
     }
+    if (!authorizeWebhookSecret(c)) return unauthorized(c);
 
     let body: {
       severity?: string;
@@ -211,7 +226,6 @@ export function createWebApp() {
         cooldown_ms: OPS_ALERT_DEDUPE_MS - (now - last),
       });
     }
-    // Prune map occasionally
     if (opsAlertDedupe.size > 500) {
       for (const [k, ts] of opsAlertDedupe) {
         if (now - ts > OPS_ALERT_DEDUPE_MS) opsAlertDedupe.delete(k);
@@ -233,11 +247,16 @@ export function createWebApp() {
     return c.json({ ok: true, deduped: false, fingerprint });
   });
 
+  /**
+   * One-off corp outbound mail (PayPal Support, ops).
+   * Auth: x-webhook-secret. Prefer RESEND_API_KEY; SMTP_* fallback. No SMTP_FROM_NAME.
+   */
   app.post("/webhooks/corp-mail", async (c) => {
-    const secret = c.req.header("x-webhook-secret") || c.req.query("secret");
-    if (!secret || secret !== config.webhookSecret) {
-      return c.json({ error: "unauthorized" }, 401);
+    const rl = rateLimited(c, "corp-mail", 10, 60_000);
+    if (!rl.allowed) {
+      return c.json({ error: "rate_limited" }, 429);
     }
+    if (!authorizeWebhookSecret(c)) return unauthorized(c);
     if (!mailConfigured()) {
       return c.json(
         {
@@ -291,11 +310,11 @@ export function createWebApp() {
         provider: result.provider,
       });
     } catch (err) {
-      console.error("[corp-mail]", err);
+      console.error("[corp-mail]", redactSecrets(err));
       return c.json(
         {
           error: "send_failed",
-          detail: err instanceof Error ? err.message : String(err),
+          detail: safeErrorDetail(err),
         },
         502
       );
@@ -303,10 +322,11 @@ export function createWebApp() {
   });
 
   app.post("/webhooks/site-lead", async (c) => {
-    const secret = c.req.header("x-webhook-secret") || c.req.query("secret");
-    if (!secret || secret !== config.webhookSecret) {
-      return c.json({ error: "unauthorized" }, 401);
+    const rl = rateLimited(c, "site-lead", 120, 60_000);
+    if (!rl.allowed) {
+      return c.json({ error: "rate_limited" }, 429);
     }
+    if (!authorizeWebhookSecret(c)) return unauthorized(c);
 
     let body: LeadBody = {};
     try {
@@ -359,8 +379,8 @@ export function createWebApp() {
         const turn = await handleUserTurn(session, seed);
         assistantReply = turn.reply;
       } catch (err) {
-        console.error("[web lead dialogue]", err);
-        dialogueError = err instanceof Error ? err.message : String(err);
+        console.error("[web lead dialogue]", redactSecrets(err));
+        dialogueError = safeErrorDetail(err);
         assistantReply =
           "Thanks for reaching out — please continue the booking chat in Telegram.";
       }
@@ -396,11 +416,11 @@ export function createWebApp() {
         dialogueError,
       });
     } catch (err) {
-      console.error("[web lead]", err);
+      console.error("[web lead]", redactSecrets(err));
       return c.json(
         {
           error: "internal",
-          detail: err instanceof Error ? err.message : String(err),
+          detail: safeErrorDetail(err),
         },
         500
       );
@@ -409,10 +429,11 @@ export function createWebApp() {
 
   /** Optional: continue a web session by id (for embedded chat later). */
   app.post("/webhooks/site-message", async (c) => {
-    const secret = c.req.header("x-webhook-secret") || c.req.query("secret");
-    if (!secret || secret !== config.webhookSecret) {
-      return c.json({ error: "unauthorized" }, 401);
+    const rl = rateLimited(c, "site-message", 180, 60_000);
+    if (!rl.allowed) {
+      return c.json({ error: "rate_limited" }, 429);
     }
+    if (!authorizeWebhookSecret(c)) return unauthorized(c);
     let body: { sessionId?: string; message?: string } = {};
     try {
       body = (await c.req.json()) as { sessionId?: string; message?: string };
@@ -439,12 +460,12 @@ export function createWebApp() {
         }),
       });
     } catch (err) {
-      console.error("[web message]", err);
+      console.error("[web message]", redactSecrets(err));
       return c.json(
         {
           ok: false,
           error: "dialogue_failed",
-          detail: err instanceof Error ? err.message : String(err),
+          detail: safeErrorDetail(err),
           status: session.status,
         },
         200

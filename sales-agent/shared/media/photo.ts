@@ -1,4 +1,4 @@
-import { config } from "../config.js";
+import { config } from "../../config/env.js";
 import { getGemini, mimeFromFilename } from "../llm/gemini.js";
 
 /** Describe an image for dialogue context (base64 or remote URL). */

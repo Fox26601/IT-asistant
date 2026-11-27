@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Bot } from "grammy";
-import { config } from "../config.js";
-import { getMeta, setMeta } from "../db/pg.js";
+import { config } from "../config/env.js";
+import { getMeta, setMeta } from "../shared/db/pg.js";
 
 const OWNER_META_KEY = "owner_telegram_chat_id";
 const overridePath = resolve(config.dataDir, "owner-chat-id.txt");

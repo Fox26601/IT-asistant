@@ -2,34 +2,27 @@ import type { Hono } from "hono";
 import {
   assertRuntimeConfig,
   config,
-  telegramWebhookPath,
   useTelegramWebhook,
-} from "./config.js";
+} from "../../config/env.js";
 import {
   clearTelegramWebhook,
   createClientBot,
   mountTelegramWebhook,
   registerTelegramWebhook,
-} from "./channels/telegram.js";
-import { createWebApp } from "./channels/web.js";
-import { pollEscalationsOnce } from "./integrations/escalationPoller.js";
+} from "../../messaging/telegram.js";
+import { createWebApp } from "./webApp.js";
+import { pollEscalationsOnce } from "../../sales-manager/escalationPoller.js";
+import {
+  authorizeCron,
+  authorizeWebhookSecret,
+  unauthorized,
+} from "../security/webhookAuth.js";
+import { clientKey, rateLimit } from "../security/rateLimit.js";
+import { redactSecrets, safeErrorDetail } from "../security/redact.js";
 
 let telegramMounted = false;
 let webhookRegisterPromise: Promise<void> | null = null;
 let appSingleton: Hono | null = null;
-
-function authorizeCron(c: {
-  req: { header: (name: string) => string | undefined };
-}): boolean {
-  const secret = config.cronSecret;
-  if (!secret) {
-    return c.req.header("x-vercel-cron") === "1";
-  }
-  const auth = c.req.header("authorization") || "";
-  if (auth === `Bearer ${secret}`) return true;
-  if (c.req.header("x-vercel-cron") === "1") return true;
-  return false;
-}
 
 /**
  * Full HTTP app for Vercel serverless and for the Node server.
@@ -56,12 +49,16 @@ export function createServerApp(): Hono {
     }
     try {
       const result = await registerTelegramWebhook(bot);
-      return c.json({ ok: true, ...result });
+      return c.json({
+        ok: true,
+        changed: result.changed,
+        webhookUrl: `${config.publicBaseUrl}/telegram/webhook/…`,
+      });
     } catch (err) {
       return c.json(
         {
           error: "set_webhook_failed",
-          detail: err instanceof Error ? err.message : String(err),
+          detail: safeErrorDetail(err),
         },
         502
       );
@@ -84,15 +81,20 @@ export function createServerApp(): Hono {
   });
 
   app.post("/webhooks/setup-telegram", async (c) => {
-    const secret = c.req.header("x-webhook-secret") || c.req.query("secret");
-    if (!secret || secret !== config.webhookSecret) {
-      return c.json({ error: "unauthorized" }, 401);
+    const rl = rateLimit(clientKey(c, "setup-telegram"), {
+      limit: 5,
+      windowMs: 60_000,
+    });
+    if (!rl.allowed) {
+      return c.json({ error: "rate_limited" }, 429);
     }
+    if (!authorizeWebhookSecret(c)) return unauthorized(c);
     if (!telegramMounted) {
       return c.json(
         {
           error: "webhook_route_missing",
-          detail: "Set PUBLIC_BASE_URL to https://… so Telegram webhook mounts.",
+          detail:
+            "Set PUBLIC_BASE_URL to https://… so Telegram webhook mounts.",
         },
         503
       );
@@ -104,20 +106,24 @@ export function createServerApp(): Hono {
       return c.json({
         ok: true,
         bot: me.username,
-        path: telegramWebhookPath(),
+        path: "/telegram/webhook/…",
         publicBaseUrl: config.publicBaseUrl,
-        webhookUrl: result.url,
+        webhookUrl: `${config.publicBaseUrl}/telegram/webhook/…`,
         changed: result.changed,
-        telegramReportsUrl: info.url || null,
+        telegramReportsUrl: info.url
+          ? `${config.publicBaseUrl}/telegram/webhook/…`
+          : null,
         pendingUpdateCount: info.pending_update_count,
-        lastError: info.last_error_message || null,
+        lastError: info.last_error_message
+          ? redactSecrets(info.last_error_message)
+          : null,
       });
     } catch (err) {
-      console.error("[setup-telegram]", err);
+      console.error("[setup-telegram]", redactSecrets(err));
       return c.json(
         {
           error: "set_webhook_failed",
-          detail: err instanceof Error ? err.message : String(err),
+          detail: safeErrorDetail(err),
         },
         502
       );
@@ -136,7 +142,7 @@ export function ensureTelegramWebhookRegistered(): void {
     try {
       await registerTelegramWebhook(botForLazyRegister());
     } catch (err) {
-      console.error("[telegram] lazy setWebhook failed", err);
+      console.error("[telegram] lazy setWebhook failed", redactSecrets(err));
     }
   })();
 }

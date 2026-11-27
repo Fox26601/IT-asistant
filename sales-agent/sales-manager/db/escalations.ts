@@ -1,4 +1,4 @@
-import { ensureSchema, getSql } from "./pg.js";
+import { ensureSchema, getSql } from "../../shared/db/pg.js";
 
 export type EscalationRecord = {
   escalationId: string;

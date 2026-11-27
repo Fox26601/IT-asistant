@@ -1,4 +1,4 @@
-import { config } from "../config.js";
+import { config } from "../config/env.js";
 
 export type SiteApiResult = {
   ok: boolean;

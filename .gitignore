@@ -7,3 +7,6 @@ sales-agent/data/
 it-asistant/
 .vercel
 .env*
+!.env.example
+!sales-agent/.env.example
+!**/.env.example

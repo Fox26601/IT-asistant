@@ -4,16 +4,16 @@ import {
   type FunctionDeclaration,
   type Part,
 } from "@google/generative-ai";
-import { config } from "../config.js";
-import { getGemini } from "../llm/gemini.js";
+import { config } from "../../config/env.js";
+import { getGemini } from "../../shared/llm/gemini.js";
 import {
   saveSession,
   type DealSlots,
   type Session,
 } from "../db/sessions.js";
 import { SYSTEM_PROMPT, SLOT_CHECKLIST } from "./prompts.js";
-import { createDealEvent } from "../integrations/googleCalendar.js";
-import { notifyOwnerDeal } from "../integrations/ownerNotify.js";
+import { createDealEvent } from "../googleCalendar.js";
+import { notifyOwnerDeal } from "../../messaging/ownerNotify.js";
 import {
   listPendingEscalationIdsForSession,
   trackEscalation,
@@ -29,7 +29,7 @@ import {
   fetchPolicy,
   sanitizePolicyForModel,
   type SiteApiResult,
-} from "../integrations/siteApi.js";
+} from "../siteApi.js";
 
 const functionDeclarations: FunctionDeclaration[] = [
   {

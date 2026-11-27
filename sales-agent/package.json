@@ -5,9 +5,9 @@
   "description": "Sales dialogue agent: Telegram + web form → Google Calendar + owner notify",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
-    "auth:google": "tsx src/auth-google.ts",
+    "dev": "tsx watch bot/index.ts",
+    "start": "tsx bot/index.ts",
+    "auth:google": "tsx bot/auth-google.ts",
     "mail:send": "tsx scripts/send-corp-mail.ts",
     "typecheck": "tsc --noEmit"
   },

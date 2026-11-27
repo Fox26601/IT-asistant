@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer";
-import { config } from "../config.js";
+import { config } from "../config/env.js";
 
 export type CorpMailPayload = {
   to: string;

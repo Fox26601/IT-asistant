@@ -34,6 +34,11 @@ function required(name: string, fallback = ""): string {
   return (process.env[name] ?? fallback).trim();
 }
 
+function isWeakSecret(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  return !v || v === "change-me" || v === "your_webhook_secret" || v === "your_telegram_webhook_secret";
+}
+
 export const config = {
   telegramToken: required("TELEGRAM_BOT_TOKEN"),
   ownerChatId: required("OWNER_TELEGRAM_CHAT_ID"),
@@ -42,9 +47,14 @@ export const config = {
     required("TELEGRAM_WEBHOOK_SECRET") ||
     required("WEBHOOK_SECRET", "change-me"),
   geminiApiKey: required("GEMINI_API_KEY"),
-  geminiModel: required("GEMINI_MODEL", "gemini-3.8-flash"),
+  geminiModel: required("GEMINI_MODEL", "gemini-2.5-flash"),
   port: Number(required("PORT", "3847")),
   webhookSecret: required("WEBHOOK_SECRET", "change-me"),
+  /**
+   * Public HTTPS origin of this agent (no trailing slash).
+   * Vercel: https://<project>.vercel.app or custom domain.
+   * Local: http://localhost:3847 → long polling (not webhook).
+   */
   publicBaseUrl: required("PUBLIC_BASE_URL", "http://localhost:3847").replace(
     /\/$/,
     ""
@@ -75,8 +85,7 @@ export const config = {
     ? "/tmp/sales-agent-data"
     : resolve(import.meta.dirname, "../data"),
   /** Neon / Vercel Postgres connection string. */
-  databaseUrl:
-    required("DATABASE_URL") || required("POSTGRES_URL"),
+  databaseUrl: required("DATABASE_URL") || required("POSTGRES_URL"),
   /** True when running on Vercel serverless (no long-poll / no setInterval poller). */
   isVercel: Boolean(process.env.VERCEL),
   /** Protects /cron/* (Vercel Cron Authorization: Bearer CRON_SECRET). */
@@ -115,12 +124,41 @@ export function useTelegramWebhook(): boolean {
   return true;
 }
 
+/** Path secret segment — keep TELEGRAM_WEBHOOK_SECRET long/random; never commit real value. */
 export function telegramWebhookPath(): string {
   return `/telegram/webhook/${config.telegramWebhookSecret}`;
 }
 
 export function telegramWebhookUrl(): string {
   return `${config.publicBaseUrl}${telegramWebhookPath()}`;
+}
+
+/**
+ * PUBLIC_BASE_URL rules for deploy:
+ * - No trailing slash
+ * - Production: https://… (Vercel *.vercel.app or custom host)
+ * - Local long-poll: http://localhost:<PORT>
+ */
+export function assertPublicBaseUrl(): void {
+  const base = config.publicBaseUrl;
+  if (!base) {
+    throw new Error("PUBLIC_BASE_URL is required");
+  }
+  if (base.endsWith("/")) {
+    throw new Error("PUBLIC_BASE_URL must not end with /");
+  }
+  if (config.isVercel || useTelegramWebhook()) {
+    if (!/^https:\/\//i.test(base)) {
+      throw new Error(
+        "PUBLIC_BASE_URL must be https://… on Vercel / webhook mode (no trailing slash)"
+      );
+    }
+    if (/localhost|127\.0\.0\.1/i.test(base)) {
+      throw new Error(
+        "PUBLIC_BASE_URL cannot be localhost when Telegram webhook mode is required"
+      );
+    }
+  }
 }
 
 export function assertRuntimeConfig() {
@@ -131,5 +169,20 @@ export function assertRuntimeConfig() {
     throw new Error(
       `Missing required env: ${missing.join(", ")}. Copy sales-agent/.env.example → .env`
     );
+  }
+
+  const prodLike = config.isVercel || useTelegramWebhook();
+  if (prodLike) {
+    const weak: string[] = [];
+    if (isWeakSecret(config.webhookSecret)) weak.push("WEBHOOK_SECRET");
+    if (isWeakSecret(config.telegramWebhookSecret)) {
+      weak.push("TELEGRAM_WEBHOOK_SECRET");
+    }
+    if (weak.length) {
+      throw new Error(
+        `Weak/placeholder secrets in production: ${weak.join(", ")}. Set long random values in Vercel env.`
+      );
+    }
+    assertPublicBaseUrl();
   }
 }
